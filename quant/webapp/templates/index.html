@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>A股量化 · 双线看板</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>A股量化 · 双线看板</h1>
+    <div class="meta">
+      <span id="data-day">数据日: -</span>
+      <span id="now">-</span>
+      <button id="refresh">刷新</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="overview">总览</button>
+    <button class="tab" data-tab="research_sim_100k">研究模拟线</button>
+    <button class="tab" data-tab="live_manual_10k">实盘线</button>
+    <button class="tab" data-tab="compare">双线对比</button>
+    <button class="tab" data-tab="alerts">告警/调度</button>
+  </nav>
+
+  <main>
+    <!-- 总览 -->
+    <section id="overview" class="panel active">
+      <div id="indices" class="cards indices-strip"></div>
+      <div id="cards" class="cards"></div>
+      <div class="chart-box"><h3>累计收益对比（%）</h3><canvas id="ovChart"></canvas></div>
+    </section>
+
+    <!-- 账户页（模板，JS 克隆填充） -->
+    <section id="research_sim_100k" class="panel account-panel"></section>
+    <section id="live_manual_10k" class="panel account-panel"></section>
+
+    <!-- 双线对比 -->
+    <section id="compare" class="panel">
+      <div id="cmp-summary"></div>
+      <div class="chart-box"><h3>共同交易日 日收益差（实盘-研究, %）</h3><canvas id="cmpChart"></canvas></div>
+      <h3>成交偏差（实盘相对研究线，正=更差）</h3>
+      <div id="cmp-fills" class="table-wrap"></div>
+    </section>
+
+    <!-- 告警/调度 -->
+    <section id="alerts" class="panel">
+      <h3>定时任务</h3>
+      <div id="jobs" class="table-wrap"></div>
+      <h3>最近告警</h3>
+      <div id="alert-list" class="table-wrap"></div>
+    </section>
+  </main>
+
+  <template id="account-tpl">
+    <div class="acct-cards cards"></div>
+    <div class="chart-grid">
+      <div class="chart-box"><h3>净值</h3><canvas class="navChart"></canvas></div>
+      <div class="chart-box"><h3>累计收益 vs 基准（%）</h3><canvas class="retChart"></canvas></div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-box"><h3>持仓数 / 换手(%)</h3><canvas class="posChart"></canvas></div>
+      <div class="chart-box"><h3>现金 vs 持仓市值</h3><canvas class="cashChart"></canvas></div>
+    </div>
+    <h3>当前持仓</h3>
+    <div class="holdings table-wrap"></div>
+    <h3>最近成交</h3>
+    <div class="fills table-wrap"></div>
+    <h3>报告</h3>
+    <div class="reports"></div>
+    <div class="report-view"></div>
+  </template>
+
+  <!-- 个股行情弹窗 -->
+  <div id="stock-modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div id="sm-title">行情</div>
+        <button id="sm-close">✕</button>
+      </div>
+      <div id="sm-meta" class="sm-meta"></div>
+      <div class="chart-box"><h3>K线（红涨绿跌）</h3><canvas id="smK"></canvas></div>
+      <div class="chart-box"><h3>成交量</h3><canvas id="smVol"></canvas></div>
+      <div class="sm-controls">
+        <span>周期：</span>
+        <button class="klt-btn active" data-klt="101">日</button>
+        <button class="klt-btn" data-klt="102">周</button>
+        <button class="klt-btn" data-klt="60">60分</button>
+        <button class="klt-btn" data-klt="15">15分</button>
+      </div>
+      <div id="sm-table" class="table-wrap"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

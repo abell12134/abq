@@ -1,0 +1,28 @@
+account:
+  name: research_sim_100k
+  mode: simulated
+  initial_capital: 100000
+  review_min_days: 20
+
+strategy:
+  topk: 50
+  n_drop: 3
+  hold_thresh: 10
+  max_weight: 0.05
+  min_positions: 30
+  max_positions: 50
+
+execution:
+  manual_order: false
+  simulated_fill: next_open
+  use_ump: true
+  risk_check: true
+  lot_size: 100
+  note: "研究模拟线：系统按次日开盘价自动模拟成交，并记录收盘净值。"
+
+review:
+  benchmark_annual_excess: 0.093
+  tracking_deviation_alert: 0.02
+  notes:
+    - "用于观察每日模拟操作、费用、换手、收盘净值。"
+    - "与 live_manual_10k 对比，识别小资金整手/成交偏差/人工执行影响。"

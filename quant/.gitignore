@@ -1,0 +1,24 @@
+# 凭证：绝不入库
+configs/secret.env
+*.key
+
+# 运行时数据（信号、成交、净值、报告、账户账本等）
+data/
+
+# 实验与模型产物
+research/mlruns/
+mlruns/
+validation/mlruns/
+validation/ump_model.pkl
+
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+
+# 看板运行时
+data/logs/webapp.pid
+
+# 本地测试/临时
+*.log
+!ops/crontab.example

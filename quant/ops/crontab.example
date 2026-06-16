@@ -1,0 +1,43 @@
+# 量化系统调度配置（crontab -e 后粘贴，路径按实际部署调整）
+# 服务器时区需为 Asia/Shanghai，或自行换算。
+#
+# 注：阶段5a 起，日常调度已内置在常驻看板服务里（webapp/server.py 的 APScheduler，
+#     bash webapp/serve.sh start）。本 cron 仅作为不跑常驻服务时的备选方案，二选一即可，
+#     不要同时启用以免重复执行。
+#
+# 路线一（人工下单）每日闭环：
+#   晚间 run_daily evening 全自动产出次日调仓清单；
+#   次日开盘人工在同花顺照单下单（约 5 分钟，无 cron）；
+#   收盘后人工 record_fills --apply 录入实际成交（无 cron）；
+#   晚间 run_daily postclose 自动对账 + 算净值 + 出日报。
+#
+# 失败行为：任一环节失败即告警(alerts.log)并中止下游；
+#   数据质检不过则当天不出信号（宁可不交易，不可用错数据交易）。
+
+VENV=/home/ubuntu/project/quant-venv/bin/python
+QUANT=/home/ubuntu/project/quant
+LOG=/home/ubuntu/project/quant/data/logs
+
+# 22:30 收盘后晚间流水线：更新数据→信号→调仓清单(含UMP否决/风控预检)→健康检查
+# （investment_data 当日 release 通常 22:00 前后发布；信号供次日开盘执行，22:30 来得及）
+30 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account research_sim_100k --ump >> $LOG/evening_research_$(date +\%F).log 2>&1
+35 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account live_manual_10k --ump >> $LOG/evening_live_$(date +\%F).log 2>&1
+
+# --- 次日开盘 9:35~10:00：人工照 data/accounts/live_manual_10k/orders/ 清单在同花顺下单（无 cron）---
+# --- 收盘后：人工生成/更新实盘 fills，再 apply（无 cron）---
+# $VENV $QUANT/execution/record_fills.py --account live_manual_10k --day <成交日> --order-day <订单日> --template
+# $VENV $QUANT/execution/record_fills.py --account live_manual_10k --day <成交日> --apply
+
+# 23:30 晚间收盘后流水线：健康检查(成交已回填)→对账→算净值→出日报
+# （若当日未回填成交，monitor 会告警并中止，不会污染净值序列）
+30 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account research_sim_100k >> $LOG/postclose_research_$(date +\%F).log 2>&1
+35 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account live_manual_10k >> $LOG/postclose_live_$(date +\%F).log 2>&1
+
+# 每周/每20日双线复盘
+45 23 * * 5  $VENV $QUANT/ops/review_accounts.py --research research_sim_100k --live live_manual_10k >> $LOG/review_accounts_$(date +\%F).log 2>&1
+
+# 每周日 22:00 因子迭代一轮（阶段3，LLM API 成本可控）
+0 22 * * 0   $VENV $QUANT/factor_lab/run_iteration.py --iters 3 --k 5 >> $LOG/factor_$(date +\%F).log 2>&1
+
+# 每月初滚动重训评估（阶段1后启用，达标才切换模型）
+# 0 2 1 * *   $VENV $QUANT/research/rolling_retrain.py >> $LOG/retrain_$(date +\%F).log 2>&1

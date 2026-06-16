@@ -1,0 +1,32 @@
+account:
+  name: live_manual_10k
+  # 试运行期：与研究线一样按次日开盘价自动模拟成交，攒满 1 周数据用于看板验证。
+  # 正式实盘前改回 mode: manual，并 re-init 账户（python execution/record_fills.py
+  #   --account live_manual_10k --init-capital 10000 --day <真实开始日>），之后只回填真实成交。
+  mode: simulated
+  initial_capital: 10000
+  target_min_positions: 5
+  target_max_positions: 10
+  review_min_days: 20
+
+strategy:
+  topk: 5
+  n_drop: 1
+  hold_thresh: 10
+  max_weight: 0.2
+  min_positions: 5
+  max_positions: 10
+
+execution:
+  manual_order: true
+  use_ump: true
+  risk_check: true
+  lot_size: 100
+  note: "1万实盘线：系统生成订单，用户只回填实际成交 fills。"
+
+review:
+  benchmark_annual_excess: 0.093
+  tracking_deviation_alert: 0.02
+  notes:
+    - "记录实际成交、费用、现金闲置、未成交/买不满原因。"
+    - "满 20 个交易日后再评估跟踪偏差，短样本先验证流程和数据质量。"

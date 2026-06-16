@@ -1,0 +1,274 @@
+seed:
+  seed_mom20:
+    expr: $close/Ref($close,20)-1
+    category: momentum
+  seed_rev5:
+    expr: Ref($close,5)/$close-1
+    category: reversal
+  seed_vol20:
+    expr: Std($close/Ref($close,1)-1,20)
+    category: volatility
+  seed_volratio:
+    expr: Mean($volume,5)/(Mean($volume,20)+1e-12)
+    category: volume
+  seed_maratio:
+    expr: $close/Mean($close,20)
+    category: trend
+  seed_pxpos:
+    expr: ($close-Min($low,20))/(Max($high,20)-Min($low,20)+1e-12)
+    category: position
+  seed_amihud:
+    expr: Mean(Abs($close/Ref($close,1)-1)/($volume*$close+1),10)
+    category: liquidity
+  seed_rsi:
+    expr: Mean(Greater($close-Ref($close,1),0),14)/(Mean(Abs($close-Ref($close,1)),14)+1e-12)
+    category: momentum
+discovered:
+  realized_skew:
+    expr: Skew($close/Ref($close,1)-1, 20)
+    hypothesis: 已实现偏度反映收益率分布的不对称性，高偏度股票因散户博彩偏好被高估，未来出现反转，预期收益偏低。
+    category: reversal
+    status: rejected
+    metrics:
+      rank_ic: -0.0217
+      icir: -0.2447
+      oos_rank_ic: -0.018
+      oos_icir: -0.1888
+      turnover: 0.172
+      max_corr: 0.3072
+      corr_with: seed_mom20
+      incr_ic_gain: 0.00162
+    reject_reason: '初筛: |ICIR|=0.2447<0.25'
+    created_iter: 1
+    updated_at: 2026-06-15 13:52
+  pv_corr:
+    expr: Corr($close, $volume, 20)
+    hypothesis: 过去20日收盘价与成交量正相关表明量价同步，趋势受资金确认，动量延续；低相关预示分歧加大，趋势可能衰竭。
+    category: momentum
+    status: paper_tracking
+    metrics:
+      rank_ic: -0.0318
+      icir: -0.2659
+      oos_rank_ic: -0.0278
+      oos_icir: -0.1984
+      turnover: 0.1817
+      max_corr: 0.2538
+      corr_with: seed_mom20
+      incr_ic_gain: 0.00212
+    reject_reason: 过全部自动关卡 + 对组合有样本外增量，进入纸面跟踪
+    created_iter: 1
+    updated_at: 2026-06-15 13:53
+  intraday_autocorr:
+    expr: Corr($close/$open-1, Ref($close/$open-1, 1), 10)
+    hypothesis: 日内收益的一阶自相关衡量资金隔日推动的持续性，正相关反映短线趋势跟随，负相关反映日内反转，可用于区分日内主导型动量或反转特征。
+    category: momentum
+    status: rejected
+    metrics:
+      rank_ic: 0.0132
+      icir: 0.149
+      oos_rank_ic: -0.0027
+      oos_icir: -0.0217
+      turnover: 0.3747
+      max_corr: 0.021
+      corr_with: seed_volratio
+      incr_ic_gain: -0.00072
+    reject_reason: '初筛: |RankIC|=0.0132<0.02'
+    created_iter: 1
+    updated_at: 2026-06-15 13:53
+  realized_kurt:
+    expr: Kurt($close/Ref($close,1)-1, 20)
+    hypothesis: 已实现峰度度量极端收益频率，高峰度表明尾部风险高或投机性强，往往伴随后续收益回落，低峰度则走势平稳、后续相对稳定。
+    category: reversal
+    status: rejected
+    metrics:
+      rank_ic: 0.0128
+      icir: 0.1598
+      oos_rank_ic: -0.0198
+      oos_icir: -0.2557
+      turnover: 0.1792
+      max_corr: 0.1182
+      corr_with: seed_vol20
+      incr_ic_gain: -0.00419
+    reject_reason: '初筛: |RankIC|=0.0128<0.02'
+    created_iter: 1
+    updated_at: 2026-06-15 13:53
+  closevwap_strength:
+    expr: Mean(($close-$vwap)/($high-$low+1e-12), 10)
+    hypothesis: 收盘价相对成交量加权均价的位置反映日内尾盘资金主动方向，持续高于均价意味着买方主导，短期形成价格推动力。
+    category: volume
+    status: rejected
+    metrics:
+      rank_ic: 0.0003
+      icir: 0.0023
+      oos_rank_ic: -0.0055
+      oos_icir: -0.0375
+      turnover: 0.2911
+      max_corr: 0.3389
+      corr_with: seed_pxpos
+      incr_ic_gain: 0.00052
+    reject_reason: '初筛: |RankIC|=0.0003<0.02'
+    created_iter: 1
+    updated_at: 2026-06-15 13:54
+  ud_vol_ratio:
+    expr: Sum(If(Greater($close, Ref($close,1)), $volume, 0), 5) / (Sum(If(Less($close,
+      Ref($close,1)), $volume, 0), 5) + 1e-12)
+    hypothesis: 上涨日成交量大、下跌日成交量小，反映主力资金流入且惜售，后续看涨；上涨放量下跌缩量具有正选股能力。
+    category: volume
+    status: rejected
+    metrics:
+      rank_ic: .nan
+      icir: .nan
+      oos_rank_ic: .nan
+      oos_icir: .nan
+      turnover: 0.0
+      max_corr: 0.0003
+      corr_with: seed_rsi
+      incr_ic_gain: 0.0
+    reject_reason: IC 无法计算（表达式或数据问题）
+    created_iter: 2
+    updated_at: 2026-06-15 13:56
+  lower_shadow_ratio:
+    expr: Mean((Min($close,$open)-$low)/(Abs($close-$open)+1e-12), 5)
+    hypothesis: 下影线长表明日内低位有强承接盘，卖方力量衰竭；过去5日平均下影线比例高的股票短期有反弹动力。
+    category: reversal
+    status: rejected
+    metrics:
+      rank_ic: .nan
+      icir: .nan
+    reject_reason: '表达式无法计算: window must be an integer 0 or greater'
+    created_iter: 2
+    updated_at: 2026-06-15 13:56
+  delta_pv_corr:
+    expr: Corr($close-Ref($close,1), $volume-Ref($volume,1), 20)
+    hypothesis: 价格变动与成交量变动正相关反映量价增量协同，趋势可靠性高、可能延续；负相关则量价背离，趋势衰弱。
+    category: momentum
+    status: paper_tracking
+    metrics:
+      rank_ic: -0.0309
+      icir: -0.2784
+      oos_rank_ic: -0.0283
+      oos_icir: -0.2372
+      turnover: 0.1702
+      max_corr: 0.5665
+      corr_with: pv_corr
+      incr_ic_gain: 0.00312
+    reject_reason: 过全部自动关卡 + 对组合有样本外增量，进入纸面跟踪
+    created_iter: 2
+    updated_at: 2026-06-15 13:56
+  breakout_intensity:
+    expr: Mean(Greater($close, Ref(Max($high,20),1)), 5)
+    hypothesis: 近5日创新高频率反映突破阻力的强度与持续性，频率越高多头信念越强，具有趋势强化效应。
+    category: momentum
+    status: rejected
+    metrics:
+      rank_ic: -0.0043
+      icir: -0.0352
+      oos_rank_ic: 0.0036
+      oos_icir: 0.0409
+      turnover: 0.0077
+      max_corr: 0.3851
+      corr_with: seed_amihud
+      incr_ic_gain: -0.00162
+    reject_reason: '初筛: |RankIC|=0.0043<0.02'
+    created_iter: 2
+    updated_at: 2026-06-15 13:56
+  vol_change_ratio:
+    expr: (Std($close/Ref($close,1)-1, 5) - Std($close/Ref($close,1)-1, 20)) / (Std($close/Ref($close,1)-1,
+      20) + 1e-12)
+    hypothesis: 短期波动率骤升往往由恐慌或过度关注驱动，后续易反转；波动率变化率过高时未来收益倾向于负向。
+    category: volatility
+    status: rejected
+    metrics:
+      rank_ic: -0.0139
+      icir: -0.1489
+      oos_rank_ic: -0.0068
+      oos_icir: -0.0582
+      turnover: 0.3686
+      max_corr: 0.5355
+      corr_with: seed_volratio
+      incr_ic_gain: -0.00044
+    reject_reason: '初筛: |RankIC|=0.0139<0.02'
+    created_iter: 2
+    updated_at: 2026-06-15 13:57
+  norm_pv_slope_divergence:
+    expr: (Slope($close,10)/(Std($close,10)+1e-12)) - (Slope($volume,10)/(Std($volume,10)+1e-12))
+    hypothesis: 价格趋势强度与成交量趋势强度背离时，趋势可靠性下降，容易发生反转。用各自标准化后的斜率差衡量，正值表示价升量不跟，预期未来收益下降。
+    category: volume
+    status: rejected
+    metrics:
+      rank_ic: 0.0032
+      icir: 0.028
+      oos_rank_ic: -0.0033
+      oos_icir: -0.026
+      turnover: 0.3331
+      max_corr: 0.5183
+      corr_with: seed_maratio
+      incr_ic_gain: 0.0011
+    reject_reason: '初筛: |RankIC|=0.0032<0.02'
+    created_iter: 3
+    updated_at: 2026-06-15 13:59
+  downside_vol_ratio:
+    expr: Sum(If(Less($close, Ref($close,1)), Power($close/Ref($close,1)-1, 2), 0),
+      10) / (Sum(Power($close/Ref($close,1)-1, 2), 10) + 1e-12)
+    hypothesis: 投资者对下行风险更敏感，下跌日波动占总波动比例高的股票，应提供更高的预期收益作为补偿。因子值高预示未来正收益。
+    category: volatility
+    status: rejected
+    metrics:
+      rank_ic: 0.0035
+      icir: 0.0813
+      oos_rank_ic: 0.0225
+      oos_icir: 0.9216
+      turnover: 0.0
+      max_corr: 0.0171
+      corr_with: seed_amihud
+      incr_ic_gain: 2.0e-05
+    reject_reason: '初筛: |RankIC|=0.0035<0.02'
+    created_iter: 3
+    updated_at: 2026-06-15 13:59
+  vol_skew:
+    expr: Skew($volume, 20)
+    hypothesis: 成交量分布的正偏度表明偶发性的巨量成交，往往反映机构吸筹或出货，未来容易出现方向性行情，偏度极端股预期收益更高。
+    category: volume
+    status: rejected
+    metrics:
+      rank_ic: -0.0047
+      icir: -0.0607
+      oos_rank_ic: -0.0131
+      oos_icir: -0.1646
+      turnover: 0.2255
+      max_corr: 0.1789
+      corr_with: delta_pv_corr
+      incr_ic_gain: 0.00186
+    reject_reason: '初筛: |RankIC|=0.0047<0.02'
+    created_iter: 3
+    updated_at: 2026-06-15 13:59
+  gap_up_close_down_freq:
+    expr: Mean(If(And(Greater($open, Ref($close,1)), Less($close, $open)), 1, 0),
+      5)
+    hypothesis: 高开低走是日内多头陷阱的典型特征，频繁出现说明逢高抛压沉重，后续大概率继续走弱，因子值高则预期未来收益为负。
+    category: reversal
+    status: rejected
+    metrics:
+      rank_ic: .nan
+      icir: .nan
+    reject_reason: '表达式无法计算: unsupported operand type(s) for &: ''float'' and ''float'''
+    created_iter: 3
+    updated_at: 2026-06-15 13:59
+  max_return_asymmetry:
+    expr: Max($close/Ref($close,1)-1, 10) / (Abs(Min($close/Ref($close,1)-1, 10))
+      + 1e-12)
+    hypothesis: 过去10日内最大单日涨幅远大于最大跌幅时，显示过度乐观情绪，价格易反转下跌；反之则悲观过度，易反弹。因子值高对应未来负收益。
+    category: reversal
+    status: rejected
+    metrics:
+      rank_ic: -0.0185
+      icir: -0.1578
+      oos_rank_ic: -0.0143
+      oos_icir: -0.1089
+      turnover: 0.2755
+      max_corr: 0.6292
+      corr_with: seed_maratio
+      incr_ic_gain: -0.00024
+    reject_reason: '初筛: |RankIC|=0.0185<0.02'
+    created_iter: 3
+    updated_at: 2026-06-15 13:59

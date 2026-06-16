@@ -1,0 +1,56 @@
+# =============================================================================
+# abq 仓库根 .gitignore
+# 本仓库只收录自研代码；上游项目请单独 clone（见 README 上游致谢）
+# =============================================================================
+
+# --- 虚拟环境（绝不入库）---
+quant-venv/
+venv/
+.venv/
+env/
+
+# --- 上游参考 clone（本地开发用，不随 abq 发布）---
+qlib/
+vnpy/
+rd-agent/
+abu/
+backtrader/
+
+# --- 密钥与本地配置 ---
+.env
+.env.*
+*.key
+**/secret.env
+!**/secret.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- 本地 Qlib 数据（应在 ~/.qlib，勿放仓库内）---
+.qlib/
+
+# --- 杂项日志（quant/data/logs 由 quant/.gitignore 覆盖）---
+*.log
+!quant/ops/crontab.example
