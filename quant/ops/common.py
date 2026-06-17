@@ -95,6 +95,13 @@ def init_qlib() -> None:
     _QLIB_READY = True
 
 
+def reset_qlib() -> None:
+    """长驻进程（如 webapp）在 qlib 数据包更新后需重置，否则日历/价格仍停在首次 init 时点。"""
+    global _QLIB_READY
+    _QLIB_READY = False
+    init_qlib()
+
+
 def calendar() -> list:
     init_qlib()
     from qlib.data import D

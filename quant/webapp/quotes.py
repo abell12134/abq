@@ -1,18 +1,21 @@
 """个股/指数行情数据接入。
 
 数据源优先级：
-  1) 东方财富 push2his K线接口（免费、无 key、含当日近实时真实价）；
-  2) 连不通时回退本地 qlib 日线（$close/$factor 还原真实价，仅到最近 release）。
+  1) 东方财富 push2his K线（含当日近实时）；
+  2) 长历史请求失败时：qlib 历史 + 东财近期 K 线合并；
+  3) 仍失败时：刷新 qlib 后纯本地日线（仅 EOD，可能缺当日）。
 
-只读、轻量：标准库 urllib + 进程内短缓存，避免频繁外呼。
+只读、轻量：标准库 urllib + 进程内短缓存（仅缓存东财成功结果）。
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -20,14 +23,15 @@ QUANT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(QUANT / "ops"))
 import common as C  # noqa: E402
 
-EM_KLINE = ("https://push2his.eastmoney.com/api/qt/stock/kline/get"
-            "?secid={secid}&fields1=f1,f2,f3,f4,f5,f6"
-            "&fields2=f51,f52,f53,f54,f55,f56,f57"
-            "&klt={klt}&fqt={fqt}&end={end}&lmt={lmt}")
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) quant-dashboard"
-_EM_RETRY = 2
+log = logging.getLogger(__name__)
 
-# 常用指数（“大盘”）
+EM_PATH = "/api/qt/stock/kline/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6" \
+          "&fields2=f51,f52,f53,f54,f55,f56,f57&klt={klt}&fqt={fqt}&end={end}&lmt={lmt}"
+EM_HOSTS = ("https://push2his.eastmoney.com", "http://push2his.eastmoney.com")
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 quant-dashboard"
+_EM_RETRY = 4
+_EM_TIMEOUT = 12.0
+
 INDICES = [
     {"instrument": "SH000001", "name": "上证指数"},
     {"instrument": "SH000905", "name": "中证500(基准)"},
@@ -35,49 +39,109 @@ INDICES = [
 ]
 
 _cache: dict[str, tuple[float, dict]] = {}
-_TTL = 60.0  # 秒
+_TTL = 60.0
 
 
 def secid(instrument: str) -> str:
-    """SH600000→1.600000；SZ000001/BJ→0.xxxxxx；指数同前缀规则。"""
     mkt = instrument[:2].upper()
     code = instrument[2:]
-    market = "1" if mkt == "SH" else "0"  # SZ/BJ 均为 0
+    market = "1" if mkt == "SH" else "0"
     return f"{market}.{code}"
 
 
-def _fetch_em(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None:
-    end = dt.date.today().strftime("%Y%m%d")
-    url = EM_KLINE.format(secid=secid(instrument), klt=klt, lmt=lmt, fqt=fqt, end=end)
+def _em_request(url: str) -> dict | None:
     req = urllib.request.Request(url, headers={
-        "User-Agent": UA, "Referer": "https://quote.eastmoney.com/",
-        "Connection": "close", "Accept": "application/json"})
-    j = None
-    for attempt in range(_EM_RETRY):  # 东财偶发断连，短重试显著提升命中率
+        "User-Agent": UA,
+        "Referer": "https://quote.eastmoney.com/",
+        "Connection": "close",
+        "Accept": "application/json",
+    })
+    for attempt in range(_EM_RETRY):
         try:
-            with urllib.request.urlopen(req, timeout=8) as r:
-                j = json.load(r)
-            break
-        except Exception:
-            time.sleep(0.4 * (attempt + 1))
-    if j is None:
-        return None
+            with urllib.request.urlopen(req, timeout=_EM_TIMEOUT) as r:
+                return json.load(r)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+            log.debug("东财 K 线请求失败 attempt=%s url=%s err=%s", attempt + 1, url[:80], e)
+            time.sleep(0.35 * (attempt + 1))
+    return None
+
+
+def _parse_em_klines(j: dict, instrument: str) -> dict | None:
     data = j.get("data")
     if not data or not data.get("klines"):
         return None
     rows = []
     for ln in data["klines"]:
         p = ln.split(",")
-        # f51..f57 = date,open,close,high,low,volume,amount
         rows.append({"date": p[0], "open": float(p[1]), "close": float(p[2]),
                      "high": float(p[3]), "low": float(p[4]),
                      "volume": float(p[5]), "amount": float(p[6])})
     return {"name": data.get("name", instrument), "source": "eastmoney", "klines": rows}
 
 
+def _fetch_em_once(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None:
+    end = dt.date.today().strftime("%Y%m%d")
+    sid = secid(instrument)
+    path = EM_PATH.format(secid=sid, klt=klt, lmt=lmt, fqt=fqt, end=end)
+    for host in EM_HOSTS:
+        j = _em_request(host + path)
+        if j is None:
+            continue
+        res = _parse_em_klines(j, instrument)
+        if res:
+            return res
+    return None
+
+
+def _merge_klines(hist: list[dict], recent: list[dict]) -> list[dict]:
+    """历史 + 近期合并，重叠日期以 recent（东财）为准。"""
+    if not hist:
+        return recent
+    if not recent:
+        return hist
+    cut = recent[0]["date"]
+    base = [k for k in hist if k["date"] < cut]
+    seen = {k["date"] for k in base}
+    for k in recent:
+        if k["date"] in seen:
+            base = [x for x in base if x["date"] != k["date"]]
+        base.append(k)
+        seen.add(k["date"])
+    return sorted(base, key=lambda x: x["date"])
+
+
+def _fetch_em(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None:
+    """东财 K 线：先全量，失败则缩小窗口，再失败则 qlib 历史 + 东财近期合并。"""
+    res = _fetch_em_once(instrument, klt, lmt, fqt)
+    if res:
+        return res
+
+    for smaller in (min(lmt, 60), min(lmt, 15), 5):
+        if smaller >= lmt:
+            continue
+        res = _fetch_em_once(instrument, klt, smaller, fqt)
+        if res and len(res["klines"]) >= min(smaller, 5):
+            log.info("%s 东财全量 lmt=%s 失败，降级 lmt=%s 成功", instrument, lmt, smaller)
+            return res
+
+    recent = _fetch_em_once(instrument, klt, 10, fqt)
+    if not recent:
+        return None
+
+    C.reset_qlib()
+    ql = _fetch_qlib(instrument, lmt)
+    if ql and ql["klines"]:
+        merged = _merge_klines(ql["klines"], recent["klines"])
+        log.info("%s 东财全量失败，已用 qlib 历史 + 东财近期(%d根) 合并", instrument, len(recent["klines"]))
+        return {"name": recent["name"], "source": "eastmoney", "klines": merged[-lmt:]}
+
+    log.info("%s 东财全量失败，仅返回近期 %d 根 K 线", instrument, len(recent["klines"]))
+    return recent
+
+
 def _fetch_qlib(instrument: str, lmt: int) -> dict | None:
     try:
-        C.init_qlib()
+        C.reset_qlib()
         from qlib.data import D
         cal = C.calendar()
         end = cal[-1]
@@ -86,7 +150,8 @@ def _fetch_qlib(instrument: str, lmt: int) -> dict | None:
                         ["$open/$factor", "$close/$factor", "$high/$factor",
                          "$low/$factor", "$volume"],
                         start_time=str(start), end_time=str(end))
-    except Exception:
+    except Exception as e:
+        log.warning("qlib 行情读取失败 %s: %s", instrument, e)
         return None
     if df is None or df.empty:
         return None
@@ -103,14 +168,17 @@ def _fetch_qlib(instrument: str, lmt: int) -> dict | None:
 def quote(instrument: str, klt: int = 101, lmt: int = 120, fqt: int = 1) -> dict:
     key = f"{instrument}:{klt}:{lmt}:{fqt}"
     now = time.time()
-    if key in _cache and now - _cache[key][0] < _TTL:
-        return _cache[key][1]
+    cached = _cache.get(key)
+    if cached and now - cached[0] < _TTL and cached[1].get("source") == "eastmoney":
+        return cached[1]
 
     res = _fetch_em(instrument, klt, lmt, fqt) or _fetch_qlib(instrument, lmt)
     if not res:
         out = {"instrument": instrument, "ok": False, "klines": []}
-        _cache[key] = (now, out)
         return out
+
+    if res["source"] != "eastmoney":
+        log.warning("%s 行情回退至 %s（数据可能不是最新）", instrument, res["source"])
 
     kl = res["klines"]
     last = kl[-1]
@@ -123,7 +191,8 @@ def quote(instrument: str, klt: int = 101, lmt: int = 120, fqt: int = 1) -> dict
         "low": round(last["low"], 3), "chg_pct": round(chg, 2),
         "klines": kl,
     }
-    _cache[key] = (now, out)
+    if out["source"] == "eastmoney":
+        _cache[key] = (now, out)
     return out
 
 

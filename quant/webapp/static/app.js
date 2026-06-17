@@ -164,7 +164,7 @@ async function loadStock() {
   const meta = document.getElementById("sm-meta");
   meta.innerHTML = '<span class="empty">加载中…</span>';
   let q;
-  try { q = await getJSON(`/api/quote/${smInst}?klt=${smKlt}&n=${smKlt >= 100 ? 120 : 240}`); }
+  try { q = await getJSON(`/api/quote/${smInst}?klt=${smKlt}&n=${smKlt >= 100 ? 120 : 240}&_=${Date.now()}`); }
   catch (e) { meta.innerHTML = '<span class="empty">行情获取失败</span>'; return; }
   if (!q.ok || !q.klines.length) { meta.innerHTML = '<span class="empty">无行情数据</span>'; return; }
 
