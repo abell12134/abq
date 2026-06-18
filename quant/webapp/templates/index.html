@@ -22,6 +22,7 @@
     <button class="tab" data-tab="research_sim_100k">研究模拟线</button>
     <button class="tab" data-tab="live_manual_10k">实盘线</button>
     <button class="tab" data-tab="compare">双线对比</button>
+    <button class="tab" data-tab="daily-ops">操作清单</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
   </nav>
 
@@ -43,6 +44,12 @@
       <div class="chart-box"><h3>共同交易日 日收益差（实盘-研究, %）</h3><canvas id="cmpChart"></canvas></div>
       <h3>成交偏差（实盘相对研究线，正=更差）</h3>
       <div id="cmp-fills" class="table-wrap"></div>
+    </section>
+
+    <!-- 操作清单 -->
+    <section id="daily-ops" class="panel">
+      <p class="panel-desc">各账户最新调仓清单：订单日 → 执行日；simulated 模式 postclose 自动成交。</p>
+      <div id="daily-ops-list"></div>
     </section>
 
     <!-- 告警/调度 -->

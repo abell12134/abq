@@ -61,6 +61,25 @@ tr:hover td { background: #222c3a; }
 .badge { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
 .badge.sim { background: #1f6feb33; color: #6cb6ff; }
 .badge.manual { background: #d2992233; color: #e3b341; }
+.badge.pending { background: #d2992233; color: #e3b341; }
+.badge.done { background: #23863633; color: #3fb950; }
+.badge.no_trade { background: #484f5833; color: #8b98a9; }
+.badge.empty { background: #484f5833; color: #8b98a9; }
+
+.ops-panel {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; margin-bottom: 16px;
+}
+.ops-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-bottom: 10px; }
+.ops-head h4 { margin: 0; font-size: 15px; flex: 1; min-width: 200px; }
+.ops-meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; line-height: 1.6; }
+.ops-summary { font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: #0f1419; border-radius: 6px; }
+.panel-desc { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.side-buy { color: var(--red); font-weight: 600; }
+.side-sell { color: var(--green); font-weight: 600; }
+.ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 768px) { .ops-grid { grid-template-columns: 1fr; } }
+.ops-grid h5 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
 .lvl-CRIT { color: var(--red); } .lvl-WARN { color: var(--amber); } .lvl-INFO { color: var(--muted); }
 
 .indices-strip .card { min-width: 130px; cursor: pointer; }

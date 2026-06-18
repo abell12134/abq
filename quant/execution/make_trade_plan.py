@@ -318,8 +318,11 @@ def main() -> int:
         buys = trade_df[trade_df.side == 'BUY']
         print(f"\n卖出 {len(sells)} 笔，买入 {len(buys)} 笔；"
               f"先卖后买，限价=开盘价附近，涨停不追买、跌停不挂卖")
-    print("\n次日成交后回填：研究线 simulate_fills.py 自动模拟；"
-          "实盘线 record_fills.py --template→改实际成交→--apply")
+    mode = CFG.get("account", {}).get("mode", "manual")
+    if mode == "simulated":
+        print("\n次日 postclose：simulate_fills.py 将按开盘价自动模拟成交")
+    else:
+        print("\n次日成交后回填：record_fills.py --template→改实际成交→--apply")
     return 0
 
 

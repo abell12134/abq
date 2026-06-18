@@ -84,7 +84,11 @@ def evening(args, day: str) -> int:
     if args.account:
         mon += ["--account", args.account]
     step("健康检查", mon, day, fatal=False)
-    C.alert("INFO", "evening 流水线完成，调仓清单待次日人工执行", day)
+    mode = cfg.get("account", {}).get("mode", "manual")
+    if mode == "simulated":
+        C.alert("INFO", "evening 流水线完成，次日 postclose 将自动成交", day)
+    else:
+        C.alert("INFO", "evening 流水线完成，调仓清单待次日人工执行", day)
     return 0
 
 

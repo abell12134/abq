@@ -64,6 +64,78 @@ function card(label, value, sub, valueCls = "") {
   return d;
 }
 
+function sideCls(side) {
+  return String(side).toUpperCase() === "BUY" ? "side-buy" : "side-sell";
+}
+function sideLabel(side) {
+  return String(side).toUpperCase() === "BUY" ? "买入" : "卖出";
+}
+function modeBadge(mode) {
+  return mode === "simulated"
+    ? '<span class="badge sim">自动模拟</span>'
+    : '<span class="badge manual">人工回填</span>';
+}
+function statusBadge(status, label) {
+  return `<span class="badge ${status}">${label}</span>`;
+}
+
+function renderDailyOpsPanel(plan, container) {
+  if (!plan) {
+    container.innerHTML = '<div class="empty">暂无数据</div>';
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "ops-panel";
+  const execDay = plan.execute_day || "—";
+  const orderDay = plan.order_day || "—";
+  el.innerHTML = `
+    <div class="ops-head">
+      <h4>${plan.label || plan.account}</h4>
+      ${statusBadge(plan.status, plan.status_label)}
+      ${modeBadge(plan.mode)}
+    </div>
+    <div class="ops-meta">
+      订单日 <b>${orderDay}</b> → 执行日 <b>${execDay}</b>
+    </div>
+    <div class="ops-summary">${plan.summary || ""}</div>
+    <div class="ops-grid">
+      <div><h5>调仓指令</h5><div class="ops-orders table-wrap"></div></div>
+      <div><h5>目标持仓（${plan.target_positions?.length || 0} 只）</h5><div class="ops-target table-wrap"></div></div>
+    </div>`;
+  container.innerHTML = "";
+  container.appendChild(el);
+  const ordersBox = el.querySelector(".ops-orders");
+  const targetBox = el.querySelector(".ops-target");
+  if (!plan.orders?.length) {
+    ordersBox.innerHTML = '<div class="empty">无需调仓</div>';
+  } else {
+    renderTable(ordersBox, plan.orders,
+      [["side", "方向"], ["instrument", "标的"], ["shares", "股数"], ["ref_price", "参考价"]],
+      "无指令", "instrument");
+    ordersBox.querySelectorAll("td").forEach(td => {
+      if (td.textContent === "BUY" || td.textContent === "SELL") {
+        const s = td.textContent;
+        td.textContent = sideLabel(s);
+        td.className = sideCls(s);
+      }
+    });
+  }
+  renderTable(targetBox, plan.target_positions,
+    [["instrument", "标的"], ["shares", "股数"], ["last_price", "参考价"], ["entry_date", "建仓日"]],
+    "暂无目标", "instrument");
+}
+
+async function loadDailyOps() {
+  const data = await getJSON("/api/daily-ops");
+  const box = document.getElementById("daily-ops-list");
+  box.innerHTML = "";
+  for (const plan of data.plans) {
+    const wrap = document.createElement("div");
+    renderDailyOpsPanel(plan, wrap);
+    box.appendChild(wrap.firstElementChild);
+  }
+}
+
 // ----------------- 账户页 -----------------
 async function loadAccount(account) {
   const panel = document.getElementById(account);
@@ -261,6 +333,7 @@ async function loadAlerts() {
 async function loadTab(tab) {
   try {
     if (tab === "overview") await loadOverview();
+    else if (tab === "daily-ops") await loadDailyOps();
     else if (tab === "compare") await loadCompare();
     else if (tab === "alerts") await loadAlerts();
     else await loadAccount(tab);
@@ -280,4 +353,8 @@ document.getElementById("refresh").onclick = () => {
   loadTab(document.querySelector(".tab.active").dataset.tab);
 };
 loadOverview();
-setInterval(() => { if (document.querySelector(".tab.active").dataset.tab === "overview") loadOverview(); }, 60000);
+setInterval(() => {
+  const tab = document.querySelector(".tab.active").dataset.tab;
+  if (tab === "overview") loadOverview();
+  else if (tab === "daily-ops") loadDailyOps();
+}, 60000);

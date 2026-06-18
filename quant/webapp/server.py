@@ -3,7 +3,7 @@
 - Web 看板（默认 0.0.0.0:8000）：两条线净值/超额曲线、持仓、成交、对账、双线对比、告警。
 - 内置定时（Asia/Shanghai，工作日）：
     22:30 evening   两条线生成次日调仓清单（含 UMP/风控预检）
-    23:30 postclose 两条线模拟成交→对账→净值→日报（实盘线正式上线后改为读人工回填）
+    23:30 postclose 两条线按 mode 处理成交（simulated→自动模拟；manual→读人工回填）→对账→净值→日报
     周五 23:45 双线复盘
   定时任务即调用经过验证的 ops/run_daily.py，服务进程只做编排与展示。
 
@@ -125,6 +125,119 @@ def alerts(limit: int = 80) -> list[dict]:
     return list(reversed(out))
 
 
+def _latest_order_day(account: str) -> str | None:
+    odir = C.account_subdirs(account)["orders"]
+    if not odir.exists():
+        return None
+    days = sorted(f.stem for f in odir.glob("????-??-??.csv"))
+    return days[-1] if days else None
+
+
+def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
+    """读取账户最新（或指定）调仓清单及执行状态。"""
+    cfg = C.account_config(account).get("account", {})
+    mode = cfg.get("mode", "manual")
+    order_day = order_day or _latest_order_day(account)
+    if not order_day:
+        return {
+            "account": account,
+            "label": _account_label(account),
+            "mode": mode,
+            "order_day": None,
+            "execute_day": None,
+            "status": "empty",
+            "status_label": "尚无调仓清单",
+            "summary": "等待 evening 流水线生成",
+            "orders": [],
+            "target_positions": [],
+        }
+
+    dirs = C.account_subdirs(account)
+    execute_day = C.next_trading_day(order_day)
+    orders_f = dirs["orders"] / f"{order_day}.csv"
+    tp_f = dirs["target_position"] / f"{order_day}.csv"
+    orders = S.read_csv("orders", orders_f) if orders_f.exists() else pd.DataFrame(
+        columns=["instrument", "side", "shares", "ref_price"])
+    target = S.read_csv("target_position", tp_f) if tp_f.exists() else pd.DataFrame(
+        columns=["instrument", "shares", "last_price", "entry_date"])
+
+    n_trades = len(orders)
+    sells = orders[orders["side"].str.upper() == "SELL"] if n_trades else orders
+    buys = orders[orders["side"].str.upper() == "BUY"] if n_trades else orders
+
+    acc = C.load_account(account) or {}
+    last_fill = acc.get("last_fill_date")
+    fills_done = (dirs["fills"] / f"{execute_day}.csv").with_suffix(".done").exists() \
+        if execute_day else False
+    applied = bool(execute_day and last_fill and str(last_fill) >= execute_day and fills_done)
+
+    if n_trades == 0:
+        status, status_label = "no_trade", "无需调仓"
+        summary = f"订单日 {order_day}，持仓维持不变"
+        if applied:
+            status_label = "无需调仓 · 已结算"
+    elif applied:
+        status, status_label = "done", "已执行"
+        summary = f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔（{execute_day} 已模拟成交）"
+    else:
+        status, status_label = "pending", "待执行"
+        exec_hint = execute_day or "待定"
+        if mode == "simulated":
+            summary = (f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔；"
+                       f"执行日 {exec_hint} postclose 自动模拟成交")
+        else:
+            summary = (f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔；"
+                       f"执行日 {exec_hint} 人工下单后 record_fills 回填")
+
+    order_rows = []
+    if n_trades:
+        side_order = {"SELL": 0, "BUY": 1}
+        sorted_orders = orders.copy()
+        sorted_orders["_ord"] = sorted_orders["side"].str.upper().map(side_order)
+        sorted_orders = sorted_orders.sort_values(["_ord", "instrument"])
+        for r in sorted_orders.itertuples():
+            order_rows.append({
+                "instrument": r.instrument,
+                "side": str(r.side).upper(),
+                "shares": int(r.shares),
+                "ref_price": round(float(r.ref_price), 2),
+            })
+
+    tp_rows = []
+    if not target.empty:
+        for r in target.itertuples():
+            tp_rows.append({
+                "instrument": r.instrument,
+                "shares": int(r.shares),
+                "last_price": round(float(r.last_price), 2),
+                "entry_date": str(r.entry_date)[:10] if pd.notna(r.entry_date) else "",
+            })
+
+    return {
+        "account": account,
+        "label": _account_label(account),
+        "mode": mode,
+        "order_day": order_day,
+        "execute_day": execute_day,
+        "status": status,
+        "status_label": status_label,
+        "summary": summary,
+        "orders": order_rows,
+        "target_positions": tp_rows,
+    }
+
+
+def daily_ops_all() -> dict:
+    try:
+        data_day = C.latest_trading_day()
+    except Exception:
+        data_day = None
+    return {
+        "data_day": data_day,
+        "plans": [daily_ops_plan(a) for a in ACCOUNTS],
+    }
+
+
 def overview() -> dict:
     accts = []
     for a in ACCOUNTS:
@@ -222,6 +335,21 @@ def index(request: Request):
 @app.get("/api/overview")
 def api_overview():
     return overview()
+
+
+@app.get("/api/daily-ops")
+def api_daily_ops():
+    return daily_ops_all()
+
+
+@app.get("/api/account/{account}/daily-ops")
+def api_account_daily_ops(account: str):
+    _check(account)
+    try:
+        data_day = C.latest_trading_day()
+    except Exception:
+        data_day = None
+    return {"data_day": data_day, "plan": daily_ops_plan(account)}
 
 
 @app.get("/api/account/{account}/daily")

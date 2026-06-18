@@ -121,6 +121,15 @@ def prev_trading_day(day: str) -> str | None:
     return cal[i - 1] if i > 0 else None
 
 
+def next_trading_day(day: str) -> str | None:
+    cal = [pd.Timestamp(d).strftime("%Y-%m-%d") for d in calendar()]
+    if day not in cal:
+        later = [d for d in cal if d > day]
+        return later[0] if later else None
+    i = cal.index(day)
+    return cal[i + 1] if i + 1 < len(cal) else None
+
+
 def trading_days_between(start: str, end: str) -> int:
     """[start, end] 闭区间交易日数（含端点）。"""
     init_qlib()
