@@ -3,23 +3,23 @@
 
 paths:
   qlib_data: ~/.qlib/qlib_data/cn_data      # Qlib bin 数据（唯一真相源）
-  csv_raw: ~/project/quant/data/csv_raw      # 抓取的原始 CSV（dump_bin 输入）
-  signals: ~/project/quant/data/signals
-  target_position: ~/project/quant/data/target_position
-  orders: ~/project/quant/data/orders
-  fills: ~/project/quant/data/fills
-  nav: ~/project/quant/data/nav
-  reports: ~/project/quant/data/reports
+  csv_raw: ~/abq/quant/data/csv_raw      # 抓取的原始 CSV（dump_bin 输入）
+  signals: ~/abq/quant/data/signals
+  target_position: ~/abq/quant/data/target_position
+  orders: ~/abq/quant/data/orders
+  fills: ~/abq/quant/data/fills
+  nav: ~/abq/quant/data/nav
+  reports: ~/abq/quant/data/reports
 
 universe:
   market: csi500            # 中证500：中小盘定价效率更低，量价因子超额更显著
   benchmark: SH000905       # 基准指数（中证500）
 
 strategy:
-  topk: 50                  # 持仓数量（与 research/workflow_baseline.yaml 保持一致）
+  topk: 15                  # 持仓数量（优化后：集中持仓提升夏普比率）
   n_drop: 3                 # 每日最多换仓数量（控制换手率）
   hold_thresh: 10           # 最小持有天数：5 日标签下强制低换手，压低成本拖累
-  max_weight: 0.05          # 单票权重上限
+  max_weight: 0.10          # 单票权重上限（优化后：允许更集中持仓）
 
 costs:                      # 与券商实际费率核对后修改
   commission: 0.00025       # 佣金 万2.5

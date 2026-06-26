@@ -1,4 +1,4 @@
-const ACCOUNTS = ["research_sim_100k", "live_manual_10k"];
+const ACCOUNTS = ["research_sim_100k", "live_manual_10k", "live_manual_10k_new"];
 const charts = {};
 const fmt = (v, d = 2) => (v == null || isNaN(v)) ? "-" : Number(v).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v, d = 2) => (v == null || isNaN(v)) ? "-" : (v >= 0 ? "+" : "") + Number(v).toFixed(d) + "%";
@@ -358,3 +358,173 @@ setInterval(() => {
   if (tab === "overview") loadOverview();
   else if (tab === "daily-ops") loadDailyOps();
 }, 60000);
+
+// ----------------- 情绪因子 -----------------
+async function loadSentiment() {
+  const statusEl = document.getElementById("sentiment-status");
+  statusEl.textContent = "加载中...";
+  
+  try {
+    const data = await getJSON("/api/sentiment");
+    statusEl.textContent = data.date ? `数据日期: ${data.date}` : "暂无数据";
+    
+    // 摘要卡片
+    const summaryBox = document.getElementById("sentiment-summary");
+    summaryBox.innerHTML = "";
+    if (data.summary) {
+      summaryBox.appendChild(card("分析股票数", data.summary.count, "只"));
+      summaryBox.appendChild(card("平均情绪", fmt(data.summary.avg_score, 4), 
+        `最高 ${fmt(data.summary.max_score, 4)} / 最低 ${fmt(data.summary.min_score, 4)}`,
+        data.summary.avg_score >= 0 ? "pos" : "neg"));
+      summaryBox.appendChild(card("正面/负面", `${data.summary.positive_count} / ${data.summary.negative_count}`, "利好/利空"));
+    }
+    
+    // 情绪分布图
+    if (data.signals && data.signals.length > 0) {
+      const labels = data.signals.map(s => s.instrument);
+      const scores = data.signals.map(s => s.score);
+      const colors = scores.map(s => s >= 0 ? "#3fb95099" : "#f8514999");
+      
+      mkChart(document.getElementById("sentimentChart"), {
+        type: "bar",
+        data: { 
+          labels, 
+          datasets: [{ label: "情绪得分", data: scores, backgroundColor: colors }] 
+        },
+        options: { ...baseOpts, plugins: { legend: { display: false } } },
+      });
+      
+      // 明细表格
+      renderTable(document.getElementById("sentiment-table"), data.signals,
+        [["rank", "排名"], ["instrument", "标的"], ["score", "情绪得分"]],
+        "暂无数据", "instrument");
+    } else {
+      document.getElementById("sentiment-table").innerHTML = '<div class="empty">暂无情绪数据，点击"刷新情绪数据"获取</div>';
+    }
+    
+  } catch (e) {
+    statusEl.textContent = "加载失败";
+    console.error(e);
+  }
+}
+
+document.getElementById("btn-refresh-sentiment").onclick = async () => {
+  const statusEl = document.getElementById("sentiment-status");
+  statusEl.textContent = "正在分析...";
+  
+  try {
+    const r = await fetch("/api/sentiment/refresh", { method: "POST" });
+    const data = await r.json();
+    
+    if (data.ok) {
+      statusEl.textContent = data.message;
+      await loadSentiment();
+    } else {
+      statusEl.textContent = "失败: " + data.message;
+    }
+  } catch (e) {
+    statusEl.textContent = "请求失败";
+  }
+};
+
+// ----------------- 组合优化 -----------------
+async function loadPortfolio() {
+  try {
+    const data = await getJSON("/api/portfolio");
+    
+    // 摘要卡片
+    const summaryBox = document.getElementById("portfolio-summary");
+    summaryBox.innerHTML = "";
+    if (data.weight_stats) {
+      summaryBox.appendChild(card("有效分散度", fmt(data.weight_stats.effective_n, 1), "越接近持仓数越分散"));
+      summaryBox.appendChild(card("Top5权重", pct(data.weight_stats.top5_weight * 100), "前5只股票占比"));
+      summaryBox.appendChild(card("基尼系数", fmt(data.weight_stats.gini, 3), "0=完全均匀 1=完全集中"));
+    }
+    
+    // 策略对比图
+    if (data.strategies && data.strategies.length > 0) {
+      const labels = data.strategies.map(s => s.method);
+      const returns = data.strategies.map(s => (s.annual_return * 100).toFixed(2));
+      const sharpes = data.strategies.map(s => s.sharpe.toFixed(2));
+      
+      mkChart(document.getElementById("portfolioCompareChart"), {
+        type: "bar",
+        data: { 
+          labels, 
+          datasets: [
+            { label: "年化收益%", data: returns, backgroundColor: "#4f9cf999" },
+            { label: "夏普比率", data: sharpes, backgroundColor: "#3fb95099" },
+          ] 
+        },
+        options: baseOpts,
+      });
+    }
+    
+    // 权重分布图 (示例数据)
+    const weightLabels = Array.from({length: 20}, (_, i) => `股票${i+1}`);
+    const weights = [0.15, 0.12, 0.10, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04, 0.04,
+                     0.03, 0.03, 0.03, 0.03, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02];
+    
+    mkChart(document.getElementById("portfolioWeightChart"), {
+      type: "doughnut",
+      data: { 
+        labels: weightLabels, 
+        datasets: [{ data: weights, backgroundColor: weights.map((_, i) => `hsl(${i * 18}, 70%, 60%)`) }] 
+      },
+      options: { responsive: true, maintainAspectRatio: false },
+    });
+    
+    // 参数网格表格
+    if (data.param_grid && data.param_grid.length > 0) {
+      renderTable(document.getElementById("portfolio-table"), data.param_grid,
+        [["topk", "持仓数"], ["max_weight", "最大权重"], ["sharpe", "夏普比率"], ["annual_return", "年化收益"]],
+        "暂无数据");
+      // 格式化百分比
+      document.getElementById("portfolio-table").querySelectorAll("td").forEach(td => {
+        const val = parseFloat(td.textContent);
+        if (!isNaN(val) && val < 1 && val > -1) {
+          td.textContent = (val * 100).toFixed(2) + "%";
+        }
+      });
+    }
+    
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+document.getElementById("btn-run-optimization").onclick = async () => {
+  const topk = document.getElementById("opt-topk").value;
+  const weight = document.getElementById("opt-weight").value;
+  
+  try {
+    const r = await fetch(`/api/portfolio/optimize?topk=${topk}&max_weight=${weight}`, { method: "POST" });
+    const data = await r.json();
+    
+    if (data.ok) {
+      alert("优化完成!\n\n" + 
+        `年化收益: ${(data.result.annual_return * 100).toFixed(2)}%\n` +
+        `年化波动: ${(data.result.annual_vol * 100).toFixed(2)}%\n` +
+        `夏普比率: ${data.result.sharpe.toFixed(2)}\n` +
+        `最大回撤: ${(data.result.max_drawdown * 100).toFixed(2)}%`);
+    } else {
+      alert("优化失败: " + data.message);
+    }
+  } catch (e) {
+    alert("请求失败");
+  }
+};
+
+// 更新路由
+const originalLoadTab = loadTab;
+loadTab = async function(tab) {
+  try {
+    if (tab === "overview") await loadOverview();
+    else if (tab === "daily-ops") await loadDailyOps();
+    else if (tab === "compare") await loadCompare();
+    else if (tab === "alerts") await loadAlerts();
+    else if (tab === "sentiment") await loadSentiment();
+    else if (tab === "portfolio") await loadPortfolio();
+    else await loadAccount(tab);
+  } catch (e) { console.error(e); }
+};

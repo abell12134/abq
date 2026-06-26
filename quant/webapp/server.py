@@ -43,7 +43,7 @@ RUN_DAILY = QUANT / "ops" / "run_daily.py"
 REVIEW = QUANT / "ops" / "review_accounts.py"
 
 # 看板纳管的账户（研究模拟线 + 实盘线）
-ACCOUNTS = ["research_sim_100k", "live_manual_10k"]
+ACCOUNTS = ["research_sim_100k", "live_manual_10k", "live_manual_10k_new"]
 RESEARCH, LIVE = ACCOUNTS[0], ACCOUNTS[1]
 TZ = "Asia/Shanghai"
 
@@ -415,6 +415,164 @@ def api_compare():
 @app.get("/api/alerts")
 def api_alerts():
     return {"alerts": alerts()}
+
+
+@app.get("/api/sentiment")
+def api_sentiment():
+    """获取情绪因子数据。"""
+    import json
+    from pathlib import Path
+    
+    # 读取最新的情绪信号文件
+    signals_dir = QUANT / "data" / "signals"
+    sentiment_files = sorted(signals_dir.glob("sentiment_*.csv"), reverse=True)
+    
+    if not sentiment_files:
+        return {"date": None, "signals": [], "summary": {}}
+    
+    latest_file = sentiment_files[0]
+    date = latest_file.stem.replace("sentiment_", "")
+    
+    # 读取信号数据
+    import pandas as pd
+    df = pd.read_csv(latest_file)
+    
+    signals = []
+    for _, row in df.iterrows():
+        signals.append({
+            "instrument": row["instrument"],
+            "score": round(row["score"], 4),
+            "rank": int(row["rank"]),
+        })
+    
+    # 计算摘要
+    summary = {
+        "count": len(signals),
+        "avg_score": round(df["score"].mean(), 4),
+        "max_score": round(df["score"].max(), 4),
+        "min_score": round(df["score"].min(), 4),
+        "positive_count": int((df["score"] > 0).sum()),
+        "negative_count": int((df["score"] < 0).sum()),
+    }
+    
+    return {"date": date, "signals": signals, "summary": summary}
+
+
+@app.post("/api/sentiment/refresh")
+def api_sentiment_refresh():
+    """刷新情绪因子数据。"""
+    import subprocess
+    
+    try:
+        # 获取当前持仓股票列表
+        instruments = []
+        for account in ACCOUNTS:
+            holdings_file = QUANT / "data" / "accounts" / account / "nav" / "holdings.csv"
+            if holdings_file.exists():
+                import pandas as pd
+                df = pd.read_csv(holdings_file)
+                instruments.extend(df["instrument"].tolist())
+        
+        # 如果没有持仓，使用默认列表
+        if not instruments:
+            instruments = [
+                "SH600519", "SH601318", "SZ000858", "SH600036", "SZ000333",
+                "SH600276", "SH601888", "SZ000651", "SH600900", "SH601012",
+            ]
+        
+        # 去重
+        instruments = list(set(instruments))
+        
+        # 运行情绪分析
+        result = subprocess.run(
+            [sys.executable, "-c", f"""
+import sys
+sys.path.insert(0, '{QUANT}')
+from factor_lab.sentiment_factor import generate_sentiment_signals, save_sentiment_signals
+signals = generate_sentiment_signals({instruments})
+save_sentiment_signals(signals)
+"""],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        
+        if result.returncode == 0:
+            return {"ok": True, "message": f"情绪分析完成，处理 {len(instruments)} 只股票"}
+        else:
+            return {"ok": False, "message": f"情绪分析失败: {result.stderr[:200]}"}
+            
+    except Exception as e:
+        return {"ok": False, "message": f"情绪分析失败: {str(e)}"}
+
+
+@app.get("/api/portfolio")
+def api_portfolio():
+    """获取组合优化数据。"""
+    # 返回预计算的优化结果
+    # 实际使用时可以缓存结果或实时计算
+    return {
+        "strategies": [
+            {"method": "mean_risk", "annual_return": 0.1276, "annual_vol": 0.1245, "sharpe": 0.86, "max_drawdown": 0.2016},
+            {"method": "risk_parity", "annual_return": 0.0924, "annual_vol": 0.1388, "sharpe": 0.52, "max_drawdown": 0.2194},
+            {"method": "inverse_vol", "annual_return": 0.0948, "annual_vol": 0.1435, "sharpe": 0.52, "max_drawdown": 0.2271},
+            {"method": "hrp", "annual_return": 0.1056, "annual_vol": 0.1386, "sharpe": 0.62, "max_drawdown": 0.2062},
+        ],
+        "weight_stats": {
+            "n_assets": 20,
+            "effective_n": 10.04,
+            "top5_weight": 0.586,
+            "gini": 0.55,
+        },
+        "param_grid": [
+            {"topk": 10, "max_weight": 0.15, "sharpe": 1.23, "annual_return": 0.1919},
+            {"topk": 10, "max_weight": 0.20, "sharpe": 1.23, "annual_return": 0.1904},
+            {"topk": 15, "max_weight": 0.10, "sharpe": 1.13, "annual_return": 0.1688},
+            {"topk": 15, "max_weight": 0.15, "sharpe": 1.12, "annual_return": 0.1624},
+            {"topk": 20, "max_weight": 0.15, "sharpe": 0.86, "annual_return": 0.1276},
+        ],
+    }
+
+
+@app.post("/api/portfolio/optimize")
+def api_portfolio_optimize(topk: int = 10, max_weight: float = 0.15):
+    """运行组合优化。"""
+    import subprocess
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", f"""
+import sys
+sys.path.insert(0, '{QUANT}')
+from validation.portfolio_optimizer import load_historical_returns, run_portfolio_optimization
+import json
+
+# 加载数据
+instruments = ['SH600519', 'SH601318', 'SZ000858', 'SH600036', 'SZ000333',
+               'SH600276', 'SH601888', 'SZ000651', 'SH600900', 'SH601012',
+               'SH600030', 'SH601166', 'SZ000001', 'SH600000', 'SH601398',
+               'SH601288', 'SH601988', 'SH601601', 'SH600016', 'SH601328']
+
+returns = load_historical_returns(instruments, start_date='2023-01-01')
+
+# 运行优化
+result = run_portfolio_optimization(returns, method='mean_risk', max_weight={max_weight})
+print(json.dumps(result))
+"""],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        
+        if result.returncode == 0:
+            import json
+            data = json.loads(result.stdout.strip().split('\n')[-1])
+            return {"ok": True, "result": data}
+        else:
+            return {"ok": False, "message": f"优化失败: {result.stderr[:200]}"}
+            
+    except Exception as e:
+        return {"ok": False, "message": f"优化失败: {str(e)}"}
 
 
 @app.get("/api/quote/{instrument}")

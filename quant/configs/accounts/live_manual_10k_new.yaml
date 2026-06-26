@@ -1,0 +1,31 @@
+account:
+  name: live_manual_10k_new
+  mode: simulated
+  initial_capital: 10000
+  target_min_positions: 10
+  target_max_positions: 15
+  review_min_days: 20
+
+strategy:
+  topk: 5                   # 小资金适配：降低持仓数
+  n_drop: 1
+  hold_thresh: 10
+  max_weight: 0.20          # 允许更集中持仓
+  min_positions: 3
+  max_positions: 5
+
+execution:
+  manual_order: false
+  simulated_fill: next_open
+  use_ump: true
+  risk_check: true
+  lot_size: 100
+  note: "精选集中策略：topk=5, max_weight=0.20，集中持仓提升夏普比率"
+
+review:
+  benchmark_annual_excess: 0.093
+  tracking_deviation_alert: 0.02
+  notes:
+    - "测试优化后的集中持仓策略"
+    - "与 live_manual_10k 对比，验证参数优化效果"
+    - "观察期：20个交易日"

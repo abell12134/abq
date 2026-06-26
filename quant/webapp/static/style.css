@@ -99,3 +99,71 @@ td.clickable:hover { text-decoration: underline; }
 .sm-controls { display: flex; align-items: center; gap: 6px; margin: 4px 0 12px; color: var(--muted); }
 .klt-btn { background: #283242; padding: 4px 10px; }
 .klt-btn.active { background: var(--accent); }
+
+/* 情绪因子样式 */
+.sentiment-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sentiment-controls .btn-primary {
+  background: var(--accent);
+}
+
+.sentiment-controls #sentiment-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 组合优化样式 */
+.portfolio-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.portfolio-controls label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.portfolio-controls select {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.portfolio-controls .btn-primary {
+  background: var(--accent);
+}
+
+/* 通用按钮样式 */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

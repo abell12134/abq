@@ -21,8 +21,11 @@
     <button class="tab active" data-tab="overview">总览</button>
     <button class="tab" data-tab="research_sim_100k">研究模拟线</button>
     <button class="tab" data-tab="live_manual_10k">实盘线</button>
+    <button class="tab" data-tab="live_manual_10k_new">精选集中策略</button>
     <button class="tab" data-tab="compare">双线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
+    <button class="tab" data-tab="sentiment">情绪因子</button>
+    <button class="tab" data-tab="portfolio">组合优化</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
   </nav>
 
@@ -37,6 +40,7 @@
     <!-- 账户页（模板，JS 克隆填充） -->
     <section id="research_sim_100k" class="panel account-panel"></section>
     <section id="live_manual_10k" class="panel account-panel"></section>
+    <section id="live_manual_10k_new" class="panel account-panel"></section>
 
     <!-- 双线对比 -->
     <section id="compare" class="panel">
@@ -50,6 +54,51 @@
     <section id="daily-ops" class="panel">
       <p class="panel-desc">各账户最新调仓清单：订单日 → 执行日；simulated 模式 postclose 自动成交。</p>
       <div id="daily-ops-list"></div>
+    </section>
+
+    <!-- 情绪因子 -->
+    <section id="sentiment" class="panel">
+      <h3>情绪因子分析</h3>
+      <p class="panel-desc">基于东方财富新闻/公告的 LLM 情绪打分，辅助选股决策。</p>
+      <div class="sentiment-controls">
+        <button id="btn-refresh-sentiment" class="btn-primary">刷新情绪数据</button>
+        <span id="sentiment-status"></span>
+      </div>
+      <div id="sentiment-summary" class="cards"></div>
+      <div class="chart-box"><h3>情绪得分分布</h3><canvas id="sentimentChart"></canvas></div>
+      <h3>情绪因子明细</h3>
+      <div id="sentiment-table" class="table-wrap"></div>
+    </section>
+
+    <!-- 组合优化 -->
+    <section id="portfolio" class="panel">
+      <h3>组合优化分析</h3>
+      <p class="panel-desc">基于 skfolio 的投资组合优化，验证和优化策略参数。</p>
+      <div class="portfolio-controls">
+        <label>持仓数量 (topk):
+          <select id="opt-topk">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="20">20</option>
+          </select>
+        </label>
+        <label>最大权重:
+          <select id="opt-weight">
+            <option value="0.10">10%</option>
+            <option value="0.15" selected>15%</option>
+            <option value="0.20">20%</option>
+          </select>
+        </label>
+        <button id="btn-run-optimization" class="btn-primary">运行优化</button>
+      </div>
+      <div id="portfolio-summary" class="cards"></div>
+      <div class="chart-grid">
+        <div class="chart-box"><h3>策略对比</h3><canvas id="portfolioCompareChart"></canvas></div>
+        <div class="chart-box"><h3>权重分布</h3><canvas id="portfolioWeightChart"></canvas></div>
+      </div>
+      <h3>优化结果</h3>
+      <div id="portfolio-table" class="table-wrap"></div>
     </section>
 
     <!-- 告警/调度 -->

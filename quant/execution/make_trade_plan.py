@@ -182,8 +182,9 @@ def main() -> int:
 
     # 选股：跌出组合者卖、新晋者买（对齐回测策略）
     sell_candi, buy_candi = select_trades(score, held_inst, topk, n_drop)
-    # 买入候选只取名次靠前的一段（topk 的 3 倍足够覆盖凑整手的顺位补足）
-    buy_candi = buy_candi[: topk * 3]
+    # 买入候选取足够多的股票，确保小资金也能找到可买的标的
+    # 对于小资金账户，可能需要遍历很多高价股才能找到可买的
+    buy_candi = buy_candi[: max(topk * 10, 100)]
 
     # 17:10 UMP 否决：砍掉裁判判定胜率最差的尾部买入候选（与阶段2b A/B 口径一致）
     vetoed: set = set()

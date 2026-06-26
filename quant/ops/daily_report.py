@@ -60,7 +60,10 @@ def main() -> int:
     cum_ret = float(cur["nav"]) / start_cap - 1
     cum_excess = float(np.prod(1 + d["excess_ret"].values) - 1)
     ann_factor = ANN / n if n else 0
-    ann_excess = (1 + cum_excess) ** ann_factor - 1 if n else float("nan")
+    if n and cum_excess > -1:
+        ann_excess = float((1 + cum_excess) ** ann_factor - 1)
+    else:
+        ann_excess = float("nan")
     te = float(d["excess_ret"].std() * np.sqrt(ANN)) if n > 1 else float("nan")
     gap = abs(ann_excess - BACKTEST_ANN_EXCESS) if ann_excess == ann_excess else float("nan")
     enough = n >= 20
