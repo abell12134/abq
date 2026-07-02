@@ -41,7 +41,7 @@ def main() -> int:
                    help="强制重算已模拟过的成交（人工修账时用）")
     args = p.parse_args()
     day = args.day or C.latest_trading_day()
-    order_day = args.order_day or C.prev_trading_day(day)
+    order_day = C.resolve_order_day(args.account, day, args.order_day)
     if not order_day:
         C.alert("CRIT", f"[{args.account}] 无法确定 {day} 的前一交易日，不能模拟成交", day)
         return 1

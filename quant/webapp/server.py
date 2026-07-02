@@ -167,9 +167,15 @@ def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
 
     acc = C.load_account(account) or {}
     last_fill = acc.get("last_fill_date")
-    fills_done = (dirs["fills"] / f"{execute_day}.csv").with_suffix(".done").exists() \
-        if execute_day else False
-    applied = bool(execute_day and last_fill and str(last_fill) >= execute_day and fills_done)
+    # 数据跳空时实际成交日未必等于 next_trading_day(order_day)（如 06-26 的单补跑到 07-01
+    # 才成交），故取「≥ execute_day 的最早已完成 fills」作为真实成交日，而非死盯当天文件。
+    fill_day = None
+    if execute_day and dirs["fills"].exists():
+        done = sorted(f.stem for f in dirs["fills"].glob("????-??-??.csv")
+                      if f.stem >= execute_day and f.with_suffix(".done").exists())
+        fill_day = done[0] if done else None
+    applied = bool(execute_day and last_fill and str(last_fill) >= execute_day and fill_day)
+    filled_day = fill_day or execute_day  # 展示用：优先真实成交日
 
     if n_trades == 0:
         status, status_label = "no_trade", "无需调仓"
@@ -178,7 +184,7 @@ def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
             status_label = "无需调仓 · 已结算"
     elif applied:
         status, status_label = "done", "已执行"
-        summary = f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔（{execute_day} 已模拟成交）"
+        summary = f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔（{filled_day} 已模拟成交）"
     else:
         status, status_label = "pending", "待执行"
         exec_hint = execute_day or "待定"

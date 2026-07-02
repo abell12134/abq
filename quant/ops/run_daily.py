@@ -23,6 +23,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 QUANT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(QUANT / "ops"))
 import common as C  # noqa: E402
@@ -38,6 +40,36 @@ def step(name: str, cmd: list[str], day: str, fatal: bool = True) -> bool:
         C.alert(lvl, f"流水线步骤失败：{name}（exit {r.returncode}）", day)
         return False
     return True
+
+
+def _autofill_no_trade_day(account: str, day: str, order_day: str | None) -> None:
+    """无交易日自动回填空成交，根治人工实盘 postclose 的误报。
+
+    仅在「订单日订单为空（确无交易）且当日成交尚未回填」时触发：写空 fills 并 --apply，
+    使持仓按当日收盘重新盯市、净值/日报照常产出，monitor 不再因缺 fills 报 CRIT。
+    订单非空时绝不自动回填——必须人工录入真实成交，以免用"零成交"污染净值序列。
+    """
+    dirs = C.ensure_account_dirs(account)
+    fills = dirs["fills"] / f"{day}.csv"
+    if fills.exists() and fills.with_suffix(".done").exists():
+        return  # 已回填（人工或先前自动），不重复
+    if not order_day:
+        return
+    of = dirs["orders"] / f"{order_day}.csv"
+    if not of.exists():
+        return  # 无订单文件：交给 monitor 按缺失处理
+    try:
+        n_orders = len(pd.read_csv(of))
+    except Exception:
+        return
+    if n_orders > 0:
+        return  # 有订单：须人工录入真实成交，绝不自动填
+    rf = str(QUANT / "execution" / "record_fills.py")
+    base = [PY, rf, "--account", account, "--day", day]
+    step("空成交回填(无交易日)", base + ["--order-day", order_day, "--template"],
+         day, fatal=False)
+    if step("应用空成交", base + ["--apply"], day, fatal=False):
+        C.alert("INFO", f"[{account}] {day} 订单日 {order_day} 无调仓，已自动回填空成交", day)
 
 
 def evening(args, day: str) -> int:
@@ -95,7 +127,7 @@ def evening(args, day: str) -> int:
 def postclose(args, day: str) -> int:
     cfg = C.account_config(args.account) if args.account else C.CFG
     mode = cfg.get("account", {}).get("mode")
-    order_day = args.order_day or C.prev_trading_day(day)
+    order_day = C.resolve_order_day(args.account, day, args.order_day)
     if mode == "simulated":
         if C.load_account(args.account) is None:
             cap = cfg.get("account", {}).get("initial_capital")
@@ -109,6 +141,9 @@ def postclose(args, day: str) -> int:
             sim += ["--force"]
         if not step("模拟成交", sim, day):
             return 1
+    elif args.account:
+        # 人工实盘：无交易日（订单为空）自动回填空成交，避免次日成交未录时误报 CRIT
+        _autofill_no_trade_day(args.account, day, order_day)
 
     mon = [PY, str(QUANT / "ops" / "monitor.py"), "--day", day, "--stage", "postclose"]
     rec = [PY, str(QUANT / "execution" / "reconcile.py"), "--day", day]

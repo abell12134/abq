@@ -130,6 +130,29 @@ def next_trading_day(day: str) -> str | None:
     return cal[i + 1] if i + 1 < len(cal) else None
 
 
+def resolve_order_day(account: str | None, day: str,
+                      explicit: str | None = None) -> str | None:
+    """确定 day 执行的调仓单所在「订单日」，对数据跳空鲁棒。
+
+    正常口径是「上一交易日」（前一晚 evening 生成、当日开盘执行）。但数据源滞后时，
+    上一交易日可能压根没跑过 evening、没有订单文件（如 06-29/06-30 数据滞后，
+    evening 一直停在 06-26），此时严格用 prev_trading_day 会指向不存在的订单文件，
+    使空成交回填/模拟成交误判为「缺单」并报 CRIT。改为回退到 day 之前真实存在的
+    最近一张订单文件——即人工/系统实际挂着待执行的那张单。
+    """
+    if explicit:
+        return explicit
+    orders = account_subdirs(account)["orders"]
+    prev = prev_trading_day(day)
+    if prev and (orders / f"{prev}.csv").exists():
+        return prev
+    if orders.exists():
+        cands = sorted(p.stem for p in orders.glob("*.csv") if p.stem < day)
+        if cands:
+            return cands[-1]
+    return prev
+
+
 def trading_days_between(start: str, end: str) -> int:
     """[start, end] 闭区间交易日数（含端点）。"""
     init_qlib()

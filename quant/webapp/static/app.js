@@ -47,14 +47,19 @@ async function loadOverview() {
     ));
   }
 
-  // 累计收益对比
+  // 累计收益对比：两条线交易日不同（研究线开线更早），必须按日期并集对齐坐标轴，
+  // 否则短序列会被按下标错位画到最早的几天上（实盘线曾因此"停留在 6 月初"）。
   const series = await Promise.all(ACCOUNTS.map(a => getJSON(`/api/account/${a}/daily`)));
-  const labels = series.map(s => s.dates).sort((x, y) => y.length - x.length)[0] || [];
+  const labels = [...new Set(series.flatMap(s => s.dates))].sort();
+  const alignBy = (dates, values) => {
+    const m = new Map(dates.map((d, i) => [d, values[i]]));
+    return labels.map(d => (m.has(d) ? m.get(d) : null));
+  };
   const ds = [];
-  if (series[0].dates.length) ds.push(lineDS("研究模拟线", series[0].series.cum_ret, COLORS.research));
-  if (series[1].dates.length) ds.push(lineDS("实盘线", series[1].series.cum_ret, COLORS.live));
-  if (series[0].dates.length) ds.push(lineDS("基准", series[0].series.cum_bench, COLORS.bench));
-  mkChart(document.getElementById("ovChart"), { type: "line", data: { labels, datasets: ds }, options: baseOpts });
+  if (series[0].dates.length) ds.push(lineDS("研究模拟线", alignBy(series[0].dates, series[0].series.cum_ret), COLORS.research));
+  if (series[1].dates.length) ds.push(lineDS("实盘线", alignBy(series[1].dates, series[1].series.cum_ret), COLORS.live));
+  if (series[0].dates.length) ds.push(lineDS("基准", alignBy(series[0].dates, series[0].series.cum_bench), COLORS.bench));
+  mkChart(document.getElementById("ovChart"), { type: "line", data: { labels, datasets: ds }, options: { ...baseOpts, spanGaps: true } });
 }
 
 function card(label, value, sub, valueCls = "") {
