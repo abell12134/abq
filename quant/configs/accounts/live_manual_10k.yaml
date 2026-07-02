@@ -1,15 +1,15 @@
 account:
   name: live_manual_10k
-  # 试运行期：与研究线相同，postclose 按次日开盘价自动模拟成交（无需同花顺人工下单）。
-  # 正式接券商实盘时改 mode: manual，并 re-init 账户后改用 record_fills 回填真实成交。
-  mode: simulated
-  initial_capital: 10000
+  # 正式实盘（2026-06-22 切换）：真实资金 12000，系统出单，次日开盘人工在同花顺下单，
+  # 收盘后用 record_fills 回填真实成交。如需回退试运行，把 mode 改回 simulated 并重置账户。
+  mode: manual
+  initial_capital: 12000
   target_min_positions: 5
   target_max_positions: 10
   review_min_days: 20
 
 strategy:
-  topk: 5
+  topk: 7
   n_drop: 1
   hold_thresh: 10
   max_weight: 0.2
@@ -17,12 +17,13 @@ strategy:
   max_positions: 10
 
 execution:
-  manual_order: false
+  manual_order: true
   simulated_fill: next_open
   use_ump: true
   risk_check: true
   lot_size: 100
-  note: "试运行：系统生成订单，postclose 自动按次日开盘价模拟成交；正式实盘再改 manual。"
+  redeploy_residual_cash: true   # 小资金专用：建等权仓后用剩余现金按分数顺位补整手，压低闲置
+  note: "正式实盘：系统生成订单，次日开盘人工同花顺下单，收盘后 record_fills 回填真实成交。"
 
 review:
   benchmark_annual_excess: 0.093

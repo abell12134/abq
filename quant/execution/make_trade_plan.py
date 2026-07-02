@@ -263,6 +263,52 @@ def main() -> int:
         trades.append({"instrument": inst, "side": "BUY", "shares": shares,
                        "ref_price": round(float(prices[inst]), 2)})
         n_bought += 1
+    # 2b) 残余现金二次部署（按账户配置 execution.redeploy_residual_cash 开启）：
+    #     小资金 + 100 股整手下，等权 floor 取整会留下大量闲置现金（1.2 万实盘线一度 26%），
+    #     直接吃掉本就不高的超额。这里用建仓后的剩余现金按分数顺位继续补整手——
+    #     既给已选标的补仓、也可顺位补新标的至 max_positions，单票市值不超 max_weight 上限，
+    #     把闲置压到 1 手以内。仅对开启该开关的账户生效，研究线等默认行为不变。
+    redeploy_left = None
+    if CFG.get("execution", {}).get("redeploy_residual_cash", False):
+        if holdings.empty:
+            buy_cash = total
+        else:
+            sell_proceeds = sum(float(prices.get(s, 0)) * int(cur_shares.get(s, 0))
+                                for s in sell_final)
+            buy_cash = float(args.cash) + sell_proceeds
+        spent = sum(t["shares"] * float(prices.get(t["instrument"], 0))
+                    for t in trades if t["side"] == "BUY")
+        cash_left = buy_cash - spent
+        cap_amt = total * CFG["strategy"]["max_weight"]   # 单票市值上限
+        max_open = int(max_pos) if max_pos else topk
+        buy_shares = {t["instrument"]: t["shares"] for t in trades if t["side"] == "BUY"}
+        held_keep = [h for h in held_inst if h not in set(sell_final)]  # 持仓不补，维持低换手
+
+        def _n_open() -> int:
+            return len(held_keep) + sum(1 for v in buy_shares.values() if v > 0)
+
+        progressed = True
+        while progressed:
+            progressed = False
+            for inst in buy_candi:  # 已按分数顺位、过 UMP/风控
+                if inst not in prices.index or float(prices[inst]) <= 0:
+                    continue
+                price = float(prices[inst])
+                lot_cost = price * LOT
+                cur = buy_shares.get(inst, 0)
+                if cur == 0 and _n_open() >= max_open:
+                    continue  # 不为新标的突破 max_positions
+                if lot_cost <= cash_left and (cur * price + lot_cost) <= cap_amt + 1e-6:
+                    buy_shares[inst] = cur + LOT
+                    cash_left -= lot_cost
+                    progressed = True
+        # 用补仓后的股数重建买入清单（卖出条目保留不变）
+        trades = [t for t in trades if t["side"] == "SELL"]
+        for inst, sh in buy_shares.items():
+            if sh > 0:
+                trades.append({"instrument": inst, "side": "BUY", "shares": int(sh),
+                               "ref_price": round(float(prices[inst]), 2)})
+        redeploy_left = cash_left
     # 3) 计算执行后的持仓（含 entry_date，供回填）
     sold = set(sell_final)
     bought = {t["instrument"]: t["shares"] for t in trades if t["side"] == "BUY"}
@@ -310,6 +356,10 @@ def main() -> int:
     if skipped_unaffordable:
         print(f"[affordability] {len(skipped_unaffordable)} 只高价股按单票预算 "
               f"{per_name:,.0f} 元凑不齐整手，已顺延买入名次靠后标的")
+    if redeploy_left is not None:
+        idle_pct = 100 * redeploy_left / total if total else 0
+        print(f"[残余现金二次部署] 已用建仓后剩余现金按分数顺位补整手（≤max_weight）；"
+              f"最终闲置 ≈{redeploy_left:,.0f} 元（{idle_pct:.1f}%），单票市值≤{total*CFG['strategy']['max_weight']:,.0f} 元")
     if trade_df.empty:
         print("无需调仓")
     else:
