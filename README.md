@@ -143,25 +143,22 @@ LLM提议 → ①初筛 → ②去重 → ③样本外 → ④经济逻辑 → �
 ### 1. 环境
 
 ```bash
-git clone <your-repo-url> quant-system && cd quant-system
+git clone git@github.com:abell12134/abq.git && cd abq
 python3 -m venv quant-venv
 quant-venv/bin/pip install -r quant/requirements.txt
 ```
 
-**要求**：Python 3.10 · 内存 ≥3GB · 磁盘 ≥5GB（建议 8GB swap）
+**要求**：Python 3.10 · **全 A 重训建议内存 ≥16GB** · 磁盘 ≥5GB
 
-### 2. 市场数据（首次）
+### 2. 行情数据（已打进仓库分卷）
 
 ```bash
-# 推荐：investment_data 社区 Qlib bin 包（含历史成分股，无幸存者偏差）
-# 下载 release 的 qlib_bin.tar.gz 解压到 ~/.qlib/qlib_data/cn_data
-# 详见：https://github.com/chenditc/investment_data
-
-# 每日增量（收盘后）
-quant-venv/bin/python quant/data_pipeline/update_daily.py
+# 首次解压 datasets/qlib_cn_data.tar.gz.part_* → datasets/qlib_data/cn_data
+quant-venv/bin/python quant/ops/ensure_qlib_data.py
+# run_baseline / predict_daily 启动时也会自动解压
 ```
 
-### 3. 跑通研究基线
+### 3. 跑通研究基线（全 A）
 
 ```bash
 cd quant
@@ -169,11 +166,11 @@ cd quant
 # 产出：data/reports/baseline_*.md · MLflow · data/signals/latest_pred.csv
 ```
 
-**当前基线口径**（已通过阶段 1 验收）：
+**当前基线口径**：
 
-- 标的池：中证 500 · 模型：Alpha158 + LightGBM  
+- 标的池：**全 A（`all`）** · 基准：中证全指 SH000985 · 模型：Alpha158 + LightGBM  
 - 组合：TopK50 / n_drop3 / **hold_thresh=10** · 标签：**5 日开盘价收益**  
-- 测试期样本外：**净 IR 1.04**，年化净超额 **+9.3%**
+- 旧中证500配置：`research/workflow_baseline_csi500.yaml`
 
 ### 4. 独立复演验证（阶段 2）
 
