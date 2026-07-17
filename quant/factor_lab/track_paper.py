@@ -132,7 +132,9 @@ def main() -> int:
     # IC 窗口跟数据最新日；纸面天数跟「今天」——避免 Evaluator 旧 oos_end 把天数算成负数
     import qlib
     from qlib.data import D
-    qlib.init(provider_uri=str(Path("~/.qlib/qlib_data/cn_data").expanduser()), region="cn")
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+    qlib.init(provider_uri=resolve_provider_uri("datasets/qlib_data/cn_data"), region="cn")
     cal_last = pd.Timestamp(list(D.calendar(freq="day"))[-1]).strftime("%Y-%m-%d")
     as_of = args.as_of or cal_last
     today = dt.date.today().strftime("%Y-%m-%d")

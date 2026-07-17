@@ -221,7 +221,9 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = load_config()
-    data_dir = Path(cfg["paths"]["qlib_data"]).expanduser()
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+    data_dir = Path(resolve_provider_uri(cfg["paths"]["qlib_data"]))
     benchmark = cfg["universe"]["benchmark"]
     market = cfg["universe"].get("market", "all")
 

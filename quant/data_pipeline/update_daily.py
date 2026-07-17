@@ -105,7 +105,11 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = load_config()
-    data_dir = Path(cfg["paths"]["qlib_data"]).expanduser()
+    quant_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(quant_root / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+    # update_daily 会整体替换数据目录；指向解压后的 cn_data
+    data_dir = Path(resolve_provider_uri(cfg["paths"]["qlib_data"], ensure=True))
 
     tag = args.tag or latest_release_tag()
     old_last = local_last_date(data_dir)

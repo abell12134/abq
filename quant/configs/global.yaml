@@ -2,7 +2,8 @@
 # 所有模块统一从这里读取，禁止在代码里硬编码
 
 paths:
-  qlib_data: ~/.qlib/qlib_data/cn_data      # Qlib bin 数据（唯一真相源）
+  # 优先使用仓库内分卷解压目录（ensure_qlib_data.py）；不存在时回退 ~/.qlib
+  qlib_data: datasets/qlib_data/cn_data
   csv_raw: ~/project/quant/data/csv_raw      # 抓取的原始 CSV（dump_bin 输入）
   signals: ~/project/quant/data/signals
   target_position: ~/project/quant/data/target_position

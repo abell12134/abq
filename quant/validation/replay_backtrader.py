@@ -33,7 +33,10 @@ import yaml
 
 QUANT = Path(__file__).resolve().parents[1]
 CFG = yaml.safe_load((QUANT / "configs" / "global.yaml").read_text())
-PROVIDER = str(Path(CFG["paths"]["qlib_data"]).expanduser())
+import sys
+sys.path.insert(0, str(QUANT / "ops"))
+from ensure_qlib_data import resolve_provider_uri  # noqa: E402
+PROVIDER = resolve_provider_uri(CFG["paths"]["qlib_data"])
 LOT = 100
 LIMIT = 0.095  # 涨跌停阈值，与 workflow_baseline.yaml 的 limit_threshold 对齐
 TRADING_DAYS = 252

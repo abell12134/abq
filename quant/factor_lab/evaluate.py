@@ -19,7 +19,14 @@ HERE = Path(__file__).resolve().parent
 QUANT = HERE.parent
 # 5 日前向开盘收益，与研究层基线标签一致
 LABEL = "Ref($open,-6)/Ref($open,-1)-1"
-PROVIDER = "~/.qlib/qlib_data/cn_data"
+PROVIDER = "datasets/qlib_data/cn_data"
+
+
+def _provider_uri() -> str:
+    import sys
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+    return resolve_provider_uri(PROVIDER)
 
 
 def _rank_within_date(s: pd.Series) -> pd.Series:
@@ -32,7 +39,7 @@ class Evaluator:
                  oos_start="2024-01-01", oos_end="2026-07-16"):
         import qlib
         from qlib.data import D
-        qlib.init(provider_uri=str(Path(PROVIDER).expanduser()), region="cn")
+        qlib.init(provider_uri=str(Path(_provider_uri())), region="cn")
         self.D = D
         self.inst = D.instruments(market=market)
         self.is_p = (is_start, is_end)

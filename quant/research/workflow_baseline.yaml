@@ -8,7 +8,8 @@
 # 注意：全 A 特征/训练内存与耗时远高于 csi500（建议 ≥8G 内存或充足 swap）
 
 qlib_init:
-  provider_uri: "~/.qlib/qlib_data/cn_data"
+  # clone 后由 ensure_qlib_data 从 datasets/*.part_* 解压；也可手动指到 ~/.qlib/...
+  provider_uri: "datasets/qlib_data/cn_data"
   region: cn
 
 market: &market all

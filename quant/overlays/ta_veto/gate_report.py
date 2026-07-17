@@ -30,10 +30,14 @@ DEFAULT_CFG = QUANT / "configs" / "global.yaml"
 
 
 def _init_qlib():
+    import sys
     import qlib
 
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+
     cfg = yaml.safe_load(DEFAULT_CFG.read_text())
-    qlib.init(provider_uri=str(Path(cfg["paths"]["qlib_data"]).expanduser()), region="cn")
+    qlib.init(provider_uri=resolve_provider_uri(cfg["paths"]["qlib_data"]), region="cn")
 
 
 def _forward_excess(instruments: list[str], day: str, horizon: int) -> pd.Series:

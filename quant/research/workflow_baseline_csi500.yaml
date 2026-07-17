@@ -6,7 +6,7 @@
 # 可用 qrun 直接运行，也被 run_baseline.py 读取
 
 qlib_init:
-  provider_uri: "~/.qlib/qlib_data/cn_data"
+  provider_uri: "datasets/qlib_data/cn_data"
   region: cn
 
 market: &market csi500

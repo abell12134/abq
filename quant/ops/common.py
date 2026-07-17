@@ -91,7 +91,11 @@ def init_qlib() -> None:
     if _QLIB_READY:
         return
     import qlib
-    qlib.init(provider_uri=str(Path(CFG["paths"]["qlib_data"]).expanduser()), region="cn")
+    from ensure_qlib_data import extract, resolve_provider_uri
+
+    extract(force=False)
+    uri = resolve_provider_uri(CFG["paths"].get("qlib_data"))
+    qlib.init(provider_uri=uri, region="cn")
     _QLIB_READY = True
 
 

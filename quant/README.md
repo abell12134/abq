@@ -27,10 +27,10 @@ python3 -m venv ../quant-venv
 
 ## 数据
 
-- 唯一真相源：`~/.qlib/qlib_data/cn_data`（Qlib bin 格式）
-- 历史底座：[investment_data](https://github.com/chenditc/investment_data) 社区数据包
-  （含历史时点成分股，无幸存者偏差），`data_pipeline/init_history.py bundle` 已不适用于
-  该源，首次初始化直接下载其 release 的 `qlib_bin.tar.gz` 解压即可
+- 唯一真相源：仓库内 `datasets/qlib_data/cn_data`（由 `datasets/qlib_cn_data.tar.gz.part_*` 首次自动解压）
+  或兼容旧路径 `~/.qlib/qlib_data/cn_data`
+- 历史底座：[investment_data](https://github.com/chenditc/investment_data) 社区数据包已打进仓库分卷；
+  `git clone` 后运行 `python quant/ops/ensure_qlib_data.py`（或直接 `run_baseline.py`）即可解压
 - 每日增量：baostock 抓取（后复权价 + factor 列，与官方格式一致）
 
 ```bash

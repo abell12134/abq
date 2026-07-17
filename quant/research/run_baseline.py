@@ -38,6 +38,14 @@ def main() -> int:
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
 
+    # 确保仓库内分卷 Qlib 数据已解压（git clone 后首次自动解压）
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import extract, resolve_provider_uri
+    extract(force=False)
+    cfg["qlib_init"]["provider_uri"] = resolve_provider_uri(
+        cfg["qlib_init"].get("provider_uri")
+    )
+
     sys.path.insert(0, str(HERE))  # alpha158_plus_lab
     qlib.init(provider_uri=cfg["qlib_init"]["provider_uri"], region="cn")
 

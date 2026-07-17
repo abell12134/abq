@@ -124,7 +124,10 @@ def load_close_prices(instruments: list[str], day: str) -> pd.Series:
     import qlib
     from qlib.data import D
 
-    qlib.init(provider_uri=str(Path(CFG["paths"]["qlib_data"]).expanduser()),
+    sys.path.insert(0, str(QUANT / "ops"))
+    from ensure_qlib_data import resolve_provider_uri
+
+    qlib.init(provider_uri=resolve_provider_uri(CFG["paths"]["qlib_data"]),
               region="cn")
     df = D.features(instruments, ["$close/$factor"], start_time=day, end_time=day)
     s = df.droplevel("datetime")["$close/$factor"]  # 还原为真实价格

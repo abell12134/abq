@@ -48,8 +48,9 @@ Thumbs.db
 # --- Jupyter ---
 .ipynb_checkpoints/
 
-# --- 本地 Qlib 数据（应在 ~/.qlib，勿放仓库内）---
+# --- 本地 Qlib 数据（解压产物勿入库；分卷在 datasets/*.part_*）---
 .qlib/
+datasets/qlib_data/
 
 # --- 杂项日志（quant/data/logs 由 quant/.gitignore 覆盖）---
 *.log
