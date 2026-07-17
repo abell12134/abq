@@ -49,17 +49,36 @@ def main() -> int:
         columns=["instrument", "shares", "last_price", "entry_date"])
     insts = hold["instrument"].tolist()
     px = C.close_prices(insts, day)
-    position_value = float(sum(float(px.get(r.instrument, r.last_price)) * int(r.shares)
-                               for r in hold.itertuples()))
+
+    def _mark(r) -> float:
+        raw = px.get(r.instrument)
+        try:
+            p = float(raw) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            p = 0.0
+        if p <= 0:
+            p = float(r.last_price or 0.0)
+        return p
+
+    position_value = float(sum(_mark(r) * int(r.shares) for r in hold.itertuples()))
     nav = round(cash + position_value, 2)
 
-    # 历史 daily.csv（去掉本日重复，便于重跑）
+    # 历史 daily.csv（去掉本日重复，便于重跑）；前日净值按交易日对齐，避免重算中间日时
+    # 误用「文件末行」（可能是更晚的一日）导致日收益爆炸。
     hist = S.read_csv("daily", pth["daily"]) if pth["daily"].exists() else pd.DataFrame(
         columns=list(S.SCHEMAS["daily"]))
     hist = hist[hist["date"] != day]
-    prev_nav = float(hist["nav"].iloc[-1]) if len(hist) else float(acc["start_capital"])
-
+    if len(hist):
+        hist = hist.sort_values("date")
     prev = C.prev_trading_day(day)
+    if len(hist) and prev:
+        matched = hist[hist["date"] == prev]
+        prev_nav = float(matched["nav"].iloc[-1]) if len(matched) else float(hist["nav"].iloc[-1])
+    elif len(hist):
+        prev_nav = float(hist["nav"].iloc[-1])
+    else:
+        prev_nav = float(acc["start_capital"])
+
     daily_ret = nav / prev_nav - 1 if prev_nav else 0.0
     bench_ret = C.benchmark_return(day, prev) if prev else float("nan")
     # 建仓首日按收盘价入场，当日未承担持有期敞口，超额计 0（避免与基准全日收益错配）
@@ -86,11 +105,13 @@ def main() -> int:
           f"{len(hold)} 只）｜当日 {daily_ret:+.2%} 超额 {excess:+.2%} 换手 {turnover:.1%}"
           f"｜累计 {cum:+.2%}")
 
-    # 单日亏损熔断告警
-    halt = C.CFG["risk"]["daily_loss_halt"]
+    # 单日亏损硬熔断：写账户标志 + 剥掉当日订单 BUY（次日不再开新仓）
+    halt = float(C.CFG.get("risk", {}).get("daily_loss_halt", 0.03))
     if daily_ret <= -halt:
+        reason = f"daily_ret={daily_ret:.2%} <= -{halt:.0%}"
+        C.set_halt(day, args.account, reason=reason)
         C.alert("CRIT", f"当日亏损 {daily_ret:.2%} 触及熔断阈值 {-halt:.0%}，"
-                "暂停开新仓并人工核查", day)
+                "已暂停开新仓（仅允许卖出）", day)
     return 0
 
 

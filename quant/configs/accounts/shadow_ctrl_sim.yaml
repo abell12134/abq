@@ -1,0 +1,33 @@
+account:
+  name: shadow_ctrl_sim
+  # 对照影子线：与 shadow_ta_sim / live_manual_10k 同参，但不启用 TA 否决。
+  mode: simulated
+  initial_capital: 12000
+  target_min_positions: 5
+  target_max_positions: 10
+  review_min_days: 40
+
+strategy:
+  topk: 7
+  n_drop: 1
+  hold_thresh: 10
+  max_weight: 0.2
+  min_positions: 5
+  max_positions: 10
+
+execution:
+  manual_order: false
+  simulated_fill: next_open
+  use_ump: true
+  use_ta_veto: false
+  risk_check: true
+  lot_size: 100
+  redeploy_residual_cash: true
+  exclude_boards: [chinext, star]
+  note: "对照线：LGBM+UMP，无 TA 否决；与 shadow_ta_sim 做 A/B。"
+
+review:
+  benchmark_annual_excess: 0.093
+  tracking_deviation_alert: 0.02
+  notes:
+    - "作为 TA 否决层的纯对照，参数必须与 shadow_ta_sim 保持一致。"

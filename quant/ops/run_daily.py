@@ -2,7 +2,7 @@
 
 把"除下单/回填录入外"的环节串成一条可重跑的流水线，任一步失败即告警并中止下游。
 
-  evening   收盘后：更新数据 → 生成信号 → 调仓清单(含UMP否决/风控预检) → 健康检查
+  evening   收盘后：更新数据 → 生成信号 →（可选 TA 定性否决）→ 调仓清单(含UMP/TA) → 健康检查
             产出推送给人，次日开盘人工在同花顺下单
             （未显式 --day 时，update_daily 成功后自动刷新为最新交易日）
   （人工）   按清单下单 → 收盘后 record_fills.py --apply 录入实际成交
@@ -13,6 +13,7 @@
     python run_daily.py --stage postclose --account research_sim_100k
     python run_daily.py --stage evening --account live_manual_10k --ump
     python run_daily.py --stage postclose --account live_manual_10k
+    python run_daily.py --stage evening --account shadow_ta_sim --skip-data
     python run_daily.py --stage evening --skip-data   # 离线/演示：跳过数据更新
 """
 
@@ -77,7 +78,12 @@ def evening(args, day: str) -> int:
     if not args.skip_data:
         if not step("更新数据", [PY, str(QUANT / "data_pipeline" / "update_daily.py")], day):
             return 1
-        # update_daily 可能把日历从旧日推进到最新 release；未显式指定 --day 时必须刷新，
+        # 主路径（investment_data release）偶发停更，会让日历卡死、在旧日上空转。
+        # 用 baostock 增量把标的池补到最新交易日；非致命：baostock 也挂了就沿用现有数据。
+        # 上游正常时增量脚本判定无缺口即秒退，几乎无开销。
+        step("增量补数(上游滞后回退)",
+             [PY, str(QUANT / "data_pipeline" / "update_incremental.py")], day, fatal=False)
+        # update_daily/增量补数 可能把日历从旧日推进；未显式指定 --day 时必须刷新，
         # 否则会在旧日上重复出信号/调仓单（06-15 晚间曾因此用 06-11 跑了一整轮）。
         if args.day is None:
             day = C.latest_trading_day()
@@ -85,6 +91,22 @@ def evening(args, day: str) -> int:
     if not step("生成信号", [PY, str(QUANT / "research" / "predict_daily.py"),
                             "--date", day], day):
         return 1
+
+    # TA 定性否决：仅账户开启 use_ta_veto 或 CLI --ta-veto 时运行；失败由 run_veto fail-open
+    use_ta = args.ta_veto or bool(cfg.get("execution", {}).get("use_ta_veto"))
+    if use_ta:
+        ta_cmd = [PY, str(QUANT / "overlays" / "ta_veto" / "run_veto.py"),
+                  "--date", day]
+        if args.account:
+            ta_cmd += ["--account", args.account]
+        if args.dry_run_ta:
+            ta_cmd += ["--dry-run"]
+        # 与后续 make_trade_plan 的 UMP 开关对齐
+        if args.ump or bool(cfg.get("execution", {}).get("use_ump")):
+            ta_cmd += ["--ump"]
+        if not step("TA定性否决", ta_cmd, day, fatal=False):
+            C.alert("WARN", "TA 否决步骤异常；make_trade_plan 将 fail-open 跳过否决", day)
+
     plan = [PY, str(QUANT / "execution" / "make_trade_plan.py"), "--date", day]
     if args.account:
         plan += ["--account", args.account]
@@ -104,8 +126,10 @@ def evening(args, day: str) -> int:
             plan += ["--cash", str(cash)]
     if args.cash:
         plan += ["--cash", str(args.cash)]
-    if args.ump:
+    if args.ump or bool(cfg.get("execution", {}).get("use_ump")):
         plan += ["--ump"]
+    if use_ta:
+        plan += ["--ta-veto"]
     if not step("生成调仓清单", plan, day):
         return 1
     # 注：不在 evening 预生成 fills 模板——成交日期应为"次日执行日"而非订单日，
@@ -173,10 +197,14 @@ def main() -> int:
     p.add_argument("--capital", type=float, default=None)
     p.add_argument("--cash", type=float, default=0.0)
     p.add_argument("--ump", action="store_true")
+    p.add_argument("--ta-veto", action="store_true",
+                   help="强制跑 TA 定性否决（账户 use_ta_veto 时也会自动跑）")
+    p.add_argument("--dry-run-ta", action="store_true",
+                   help="TA 否决 dry-run（不调 LLM，写全 pass）")
     p.add_argument("--config", default=None,
                    help="传给 make_trade_plan.py 的实盘配置覆盖文件")
     p.add_argument("--account", default=None,
-                   help="账户名，如 research_sim_100k / live_manual_10k")
+                   help="账户名，如 research_sim_100k / live_manual_10k / shadow_ta_sim")
     p.add_argument("--order-day", default=None,
                    help="postclose 对账所用订单日，默认前一交易日")
     p.add_argument("--force", action="store_true",

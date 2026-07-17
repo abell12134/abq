@@ -18,6 +18,9 @@ strategy:
 
 execution:
   manual_order: true
+  # 账户无创业板交易权限，买入候选跳过（2026-07-13）；科创板同理
+  # （06-23 曾出单 BUY SH688349 未能成交）。若开通权限可删除对应项。
+  exclude_boards: [chinext, star]
   simulated_fill: next_open
   use_ump: true
   risk_check: true

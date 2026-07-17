@@ -4,9 +4,9 @@
     python update_daily.py            # 自动取最新 release
     python update_daily.py --tag 2026-06-11
 
-为什么不用 baostock 逐股抓取：本服务器到 baostock 的链路延迟过高
-（单次登录 >3 分钟），6000+ 只股票全量抓取不可行；baostock 脚本
-（fetch_baostock.py）保留作为数据源故障时的备用路径（仅限小标的池）。
+为什么不用 baostock 逐股全量抓取：6000+ 只股票全量抓取耗时不可行，且成分股为当前
+时点名单存在幸存者偏差。故主路径用此 release 包；当上游停更时，由 update_incremental.py
+用 baostock 只对「当前标的池」增量补到最新交易日作为回退（run_daily 已自动串联）。
 
 数据源：https://github.com/chenditc/investment_data （每日更新，含历史时点成分股）
 

@@ -52,6 +52,8 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg = yaml.safe_load((HERE / "workflow_baseline.yaml").read_text())
+    # 本地 handler（alpha158_plus_lab）需在 research/ 下可 import
+    sys.path.insert(0, str(HERE))
     # 训练实验记录固定存放在 research/mlruns；显式指定 exp_manager uri，
     # 使本脚本无论从哪个工作目录启动（如 ops/run_daily 子进程）都能找到模型。
     exp_uri = "file:" + str(HERE / "mlruns")

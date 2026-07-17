@@ -38,6 +38,18 @@ CFG = yaml.safe_load(DEFAULT_CFG.read_text())
 
 LOT = 100  # A 股一手
 
+# 板块 → 代码前缀（账户无相应交易权限时，配置 execution.exclude_boards 跳过买入）
+BOARD_PREFIXES = {
+    "chinext": ("SZ300", "SZ301", "SZ302"),   # 创业板
+    "star": ("SH688", "SH689"),               # 科创板
+    "bse": ("BJ",),                           # 北交所
+}
+
+
+def excluded_by_board(inst: str, boards: list[str]) -> bool:
+    return any(inst.startswith(p) for b in boards
+               for p in BOARD_PREFIXES.get(str(b).lower(), ()))
+
 
 def _merge(base: dict, override: dict) -> dict:
     out = dict(base)
@@ -155,6 +167,8 @@ def main() -> int:
     parser.add_argument("--cash", type=float, default=0.0, help="当前可用现金")
     parser.add_argument("--ump", action="store_true",
                         help="启用 UMP 裁判否决买入候选（需 validation/ump_model.pkl）")
+    parser.add_argument("--ta-veto", action="store_true",
+                        help="启用 TA 定性否决（读 data/overlays/ta_veto/日期.json）")
     parser.add_argument("--no-risk-check", action="store_true",
                         help="跳过涨跌停/停牌预检（默认开启）")
     parser.add_argument("--date", default=None, help="指定信号日期，默认取最新信号")
@@ -182,16 +196,32 @@ def main() -> int:
 
     # 选股：跌出组合者卖、新晋者买（对齐回测策略）
     sell_candi, buy_candi = select_trades(score, held_inst, topk, n_drop)
+    # 板块排除：账户无交易权限的板块（如创业板）不进入买入候选；卖出不受影响
+    exclude_boards = CFG.get("execution", {}).get("exclude_boards", []) or []
+    n_board_excluded = 0
+    if exclude_boards:
+        before = len(buy_candi)
+        buy_candi = [b for b in buy_candi if not excluded_by_board(b, exclude_boards)]
+        n_board_excluded = before - len(buy_candi)
     # 买入候选只取名次靠前的一段（topk 的 3 倍足够覆盖凑整手的顺位补足）
     buy_candi = buy_candi[: topk * 3]
 
     # 17:10 UMP 否决：砍掉裁判判定胜率最差的尾部买入候选（与阶段2b A/B 口径一致）
     vetoed: set = set()
-    if args.ump:
+    if args.ump or CFG.get("execution", {}).get("use_ump"):
         sys.path.insert(0, str(QUANT / "validation"))
         from ump_judge import live_veto_instruments
         vetoed = live_veto_instruments(day, score)
         buy_candi = [b for b in buy_candi if b not in vetoed]
+
+    # 17:12 TA 定性否决（TradingAgents 精简版）：读 overlays JSON；缺文件/fail_open → 空集
+    ta_vetoed: set = set()
+    use_ta = args.ta_veto or bool(CFG.get("execution", {}).get("use_ta_veto"))
+    if use_ta:
+        sys.path.insert(0, str(QUANT))
+        from overlays.ta_veto.schema import load_vetoed_instruments
+        ta_vetoed = load_vetoed_instruments(day)
+        buy_candi = [b for b in buy_candi if b not in ta_vetoed]
 
     all_inst = sorted(set(held_inst) | set(buy_candi))
     prices = load_close_prices(all_inst, day)
@@ -231,8 +261,19 @@ def main() -> int:
                 sellable.append(s)
         sell_final = sellable
 
-    # 补足到 topk：实际卖出数 + (topk - 当前持有数)
-    n_buy = max(len(sell_final) + topk - len(held_inst), 0)
+    # 日亏硬熔断：禁止新开仓（卖出仍允许），与 compute_nav.set_halt 联动
+    sys.path.insert(0, str(QUANT / "ops"))
+    import common as C  # noqa: E402
+    halt_active = C.is_halted(args.account)
+    if halt_active:
+        buy_candi = []
+        n_buy = 0
+        acc_halt = C.load_account(args.account) or {}
+        print(f"[HALT] 账户熔断中（halt_since={acc_halt.get('halt_since')}），"
+              "本次禁止买入，仅生成减仓单")
+    else:
+        # 补足到 topk：实际卖出数 + (topk - 当前持有数)
+        n_buy = max(len(sell_final) + topk - len(held_inst), 0)
 
     # 单票目标金额：等权，受单票上限约束
     weight = min(1.0 / topk, CFG["strategy"]["max_weight"])
@@ -250,7 +291,32 @@ def main() -> int:
                            "ref_price": round(float(prices.get(inst, 0)), 2)})
     # 2) 按名次顺位买入：凑不齐整手（小资金 + 高价股）则顺延到下一只，
     #    直至补足 n_buy 只，避免持仓只数不足、现金长期闲置
-    n_bought, skipped_unaffordable = 0, []
+    #    行业偏离：topk 足够大时跳过会加剧偏离的候选（见 strategy.industry_*）
+    n_bought, skipped_unaffordable, skipped_industry = 0, [], []
+    ind_map = {}
+    bench_ind = {}
+    ind_max = float(CFG.get("strategy", {}).get("industry_deviation_max") or 0)
+    ind_min_pos = int(CFG.get("strategy", {}).get("industry_min_positions") or 20)
+    use_industry = (not halt_active) and ind_max > 0 and topk >= ind_min_pos
+    if use_industry:
+        try:
+            from industry import load_industry_map, industry_weights, would_breach
+            ind_map = load_industry_map()
+            if ind_map:
+                # 基准：中证500 等权行业权重（无成分权重文件时的近似）
+                bench_names = sorted(ind_map.keys())
+                bench_ind = industry_weights(bench_names, mapping=ind_map)
+            else:
+                use_industry = False
+                print("[industry] 无 industry_map.csv，跳过行业约束"
+                      "（先跑 execution/build_industry_map.py）")
+        except Exception as e:
+            use_industry = False
+            print(f"[industry] 加载失败，跳过：{e}")
+
+    sell_set = set(sell_final)
+    kept_after_sell = [h for h in held_inst if h not in sell_set]
+
     for inst in buy_candi:
         if n_bought >= n_buy:
             break
@@ -259,6 +325,11 @@ def main() -> int:
         shares = int(per_name / prices[inst] / LOT) * LOT
         if shares <= 0:
             skipped_unaffordable.append(inst)
+            continue
+        if use_industry and would_breach(
+                kept_after_sell + [t["instrument"] for t in trades if t["side"] == "BUY"],
+                inst, set(), ind_max, bench_ind, mapping=ind_map):
+            skipped_industry.append(inst)
             continue
         trades.append({"instrument": inst, "side": "BUY", "shares": shares,
                        "ref_price": round(float(prices[inst]), 2)})
@@ -269,7 +340,7 @@ def main() -> int:
     #     既给已选标的补仓、也可顺位补新标的至 max_positions，单票市值不超 max_weight 上限，
     #     把闲置压到 1 手以内。仅对开启该开关的账户生效，研究线等默认行为不变。
     redeploy_left = None
-    if CFG.get("execution", {}).get("redeploy_residual_cash", False):
+    if (not halt_active) and CFG.get("execution", {}).get("redeploy_residual_cash", False):
         if holdings.empty:
             buy_cash = total
         else:
@@ -337,17 +408,31 @@ def main() -> int:
     trade_df.to_csv(od_dir / f"{day}.csv", index=False)
     (tp_dir / f"{day}.done").touch()
 
+    # 熔断已作用于本张调仓单后自动解除，后续若再触日亏阈值会由 compute_nav 重新拉起
+    if halt_active:
+        C.clear_halt(args.account, day)
+
     print(f"\n===== {day} 调仓清单（次日开盘后执行，参考价为当日收盘）=====")
     print(f"持仓 {len(held_inst)}→目标 {len(target_df)} 只 | topk={topk} "
           f"n_drop={n_drop} hold_thresh={hold_thresh} | 单票目标≈{per_name:,.0f} 元")
+    if halt_active:
+        print("[HALT] 本单为熔断减仓单（无买入）；熔断标志已清除，等待下次日亏再触发")
     if min_pos or max_pos:
         print(f"[实盘档案] 目标持仓区间 {min_pos or '-'}~{max_pos or '-'} 只；"
               "若买不满，原因会记录为小资金整手约束/价格过高")
     if min_pos and len(target_df) < int(min_pos):
         print(f"[实盘提示] 当前目标仅 {len(target_df)} 只，低于最小目标 {min_pos} 只；"
               "1000 元账户受 100 股整手限制，不能为凑数量强行买入高价股")
-    if args.ump and vetoed:
+    if exclude_boards and n_board_excluded:
+        print(f"[板块排除] {n_board_excluded} 只买入候选属无权限板块"
+              f"（{', '.join(exclude_boards)}），已跳过")
+    if vetoed:
         print(f"[UMP] 否决了 {len(vetoed)} 只买入候选（裁判判定胜率偏低）")
+    if use_ta and ta_vetoed:
+        print(f"[TA] 定性否决 {len(ta_vetoed)} 只："
+              f"{', '.join(sorted(ta_vetoed))}")
+    elif use_ta:
+        print("[TA] 已启用定性否决层（本日无生效否决 / fail-open 为空）")
     if susp_block_sell:
         print(f"[风控] 以下持仓停牌/跌停无法卖出，本次保留：{', '.join(susp_block_sell)}")
     if blocked:
@@ -356,6 +441,12 @@ def main() -> int:
     if skipped_unaffordable:
         print(f"[affordability] {len(skipped_unaffordable)} 只高价股按单票预算 "
               f"{per_name:,.0f} 元凑不齐整手，已顺延买入名次靠后标的")
+    if skipped_industry:
+        print(f"[industry] {len(skipped_industry)} 只买入候选会使行业偏离 "
+              f"> {ind_max:.0%}（相对中证500等权近似），已跳过")
+    if use_industry:
+        print(f"[industry] 已启用行业偏离约束 ≤{ind_max:.0%} "
+              f"（topk={topk} ≥ industry_min_positions={ind_min_pos}）")
     if redeploy_left is not None:
         idle_pct = 100 * redeploy_left / total if total else 0
         print(f"[残余现金二次部署] 已用建仓后剩余现金按分数顺位补整手（≤max_weight）；"

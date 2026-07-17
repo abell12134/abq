@@ -116,13 +116,23 @@ def apply_fills(day: str, account: str | None = None, force: bool = False) -> in
             else:
                 pos[r.instrument] = cur
 
-    # 收盘盯市
+    # 收盘盯市：缺价时保留原 last_price，禁止写 0（增量补数漏票时会把净值打穿）
+    prev_px = {r.instrument: float(r.last_price) for r in hold.itertuples()}
     insts = list(pos)
     px = C.close_prices(insts, day)
     rows = []
     for inst, v in pos.items():
+        raw = px.get(inst)
+        try:
+            mark = float(raw) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            mark = 0.0
+        if mark <= 0:
+            mark = float(prev_px.get(inst) or 0.0)
+            if mark <= 0:
+                C.alert("WARN", f"盯市缺价 {inst}，last_price 暂记 0", day)
         rows.append({"instrument": inst, "shares": int(v["shares"]),
-                     "last_price": round(float(px.get(inst, 0.0)), 2),
+                     "last_price": round(mark, 2),
                      "entry_date": v.get("entry_date") or day})
     new_hold = pd.DataFrame(rows, columns=["instrument", "shares", "last_price",
                                            "entry_date"])

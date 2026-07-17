@@ -22,6 +22,9 @@ LOG=/home/ubuntu/project/quant/data/logs
 # （investment_data 当日 release 通常 22:00 前后发布；信号供次日开盘执行，22:30 来得及）
 30 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account research_sim_100k --ump >> $LOG/evening_research_$(date +\%F).log 2>&1
 35 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account live_manual_10k --ump >> $LOG/evening_live_$(date +\%F).log 2>&1
+# TA 否决影子线（可选；过门禁前勿改 live。需 LLM_API_KEY；可用 --dry-run-ta 做链路烟测）
+# 40 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account shadow_ctrl_sim --ump >> $LOG/evening_ta_ctrl_$(date +\%F).log 2>&1
+# 45 22 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage evening --account shadow_ta_sim --ump >> $LOG/evening_ta_$(date +\%F).log 2>&1
 
 # --- 次日开盘 9:35~10:00：人工照 data/accounts/live_manual_10k/orders/ 清单在同花顺下单（无 cron）---
 # --- 收盘后：人工生成/更新实盘 fills，再 apply（无 cron）---
@@ -32,12 +35,19 @@ LOG=/home/ubuntu/project/quant/data/logs
 # （若当日未回填成交，monitor 会告警并中止，不会污染净值序列）
 30 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account research_sim_100k >> $LOG/postclose_research_$(date +\%F).log 2>&1
 35 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account live_manual_10k >> $LOG/postclose_live_$(date +\%F).log 2>&1
+# 40 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account shadow_ctrl_sim >> $LOG/postclose_ta_ctrl_$(date +\%F).log 2>&1
+# 45 23 * * 1-5  $VENV $QUANT/ops/run_daily.py --stage postclose --account shadow_ta_sim >> $LOG/postclose_ta_$(date +\%F).log 2>&1
 
 # 每周/每20日双线复盘
 45 23 * * 5  $VENV $QUANT/ops/review_accounts.py --research research_sim_100k --live live_manual_10k >> $LOG/review_accounts_$(date +\%F).log 2>&1
+# 50 23 * * 5  $VENV $QUANT/ops/review_ta_overlay.py >> $LOG/review_ta_$(date +\%F).log 2>&1
+# 55 23 * * 5  $VENV $QUANT/overlays/ta_veto/gate_report.py >> $LOG/ta_gate_$(date +\%F).log 2>&1
 
 # 每周日 22:00 因子迭代一轮（阶段3，LLM API 成本可控）
 0 22 * * 0   $VENV $QUANT/factor_lab/run_iteration.py --iters 3 --k 5 >> $LOG/factor_$(date +\%F).log 2>&1
 
-# 每月初滚动重训评估（阶段1后启用，达标才切换模型）
-# 0 2 1 * *   $VENV $QUANT/research/rolling_retrain.py >> $LOG/retrain_$(date +\%F).log 2>&1
+# 每周日 23:00 纸面跟踪评估（达标后人工确认再 --promote）
+0 23 * * 0   $VENV $QUANT/factor_lab/track_paper.py >> $LOG/paper_$(date +\%F).log 2>&1
+
+# 每月初滚动重训（达标才写入生产 experiment，供 predict_daily 加载）
+0 2 1 * *   $VENV $QUANT/research/rolling_retrain.py >> $LOG/retrain_$(date +\%F).log 2>&1

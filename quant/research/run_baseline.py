@@ -38,6 +38,7 @@ def main() -> int:
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
 
+    sys.path.insert(0, str(HERE))  # alpha158_plus_lab
     qlib.init(provider_uri=cfg["qlib_init"]["provider_uri"], region="cn")
 
     print("[1/4] 构建数据集（Alpha158 因子计算，耗时较长）")

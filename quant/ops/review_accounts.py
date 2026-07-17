@@ -113,11 +113,20 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--research", default="research_sim_100k")
     p.add_argument("--live", default="live_manual_10k")
+    p.add_argument("--ta", default=None,
+                   help="若指定，额外输出 TA 影子线摘要（默认 shadow_ta_sim 可手填）")
+    p.add_argument("--ta-control", default="shadow_ctrl_sim")
     args = p.parse_args()
 
     sr, sl = summary(args.research), summary(args.live)
     dr, dl = load_daily(args.research), load_daily(args.live)
     fd = fill_diff(args.research, args.live)
+
+    accounts = [sr, sl]
+    if args.ta:
+        accounts.append(summary(args.ta))
+        if args.ta_control:
+            accounts.append(summary(args.ta_control))
 
     common = pd.DataFrame()
     if not dr.empty and not dl.empty:
@@ -133,12 +142,16 @@ def main() -> int:
         "",
         f"- 研究模拟线: `{args.research}`",
         f"- 实盘线: `{args.live}`",
+    ]
+    if args.ta:
+        lines.append(f"- TA 影子线: `{args.ta}`（对照 `{args.ta_control}`；详见 `ops/review_ta_overlay.py`）")
+    lines += [
         "",
         "## 总览",
         "| 账户 | 天数 | 初始资金 | 最新净值 | 累计收益 | 累计超额 | 平均持仓 | 平均现金 | 平均换手 | 费用 | 费用/成交额 |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for s in (sr, sl):
+    for s in accounts:
         if not s.get("days"):
             lines.append(f"| {s['account']} | 0 | - | - | - | - | - | - | - | - | - |")
             continue

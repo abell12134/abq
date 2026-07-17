@@ -12,14 +12,18 @@ paths:
   reports: ~/project/quant/data/reports
 
 universe:
-  market: csi500            # 中证500：中小盘定价效率更低，量价因子超额更显著
-  benchmark: SH000905       # 基准指数（中证500）
+  market: all               # 全 A（qlib instruments=all）；回退中证500见 research/workflow_baseline_csi500.yaml
+  benchmark: SH000985       # 中证全指（与全 A 匹配；原 csi500 用 SH000905）
 
 strategy:
   topk: 50                  # 持仓数量（与 research/workflow_baseline.yaml 保持一致）
   n_drop: 3                 # 每日最多换仓数量（控制换手率）
   hold_thresh: 10           # 最小持有天数：5 日标签下强制低换手，压低成本拖累
   max_weight: 0.05          # 单票权重上限
+  # 行业偏离：相对中证500（等权近似）一级行业权重差；仅当 topk≥industry_min_positions 启用
+  # （小资金 5~10 只几乎无法满足 3%，避免误杀全部买入）
+  industry_deviation_max: 0.03
+  industry_min_positions: 20
 
 costs:                      # 与券商实际费率核对后修改
   commission: 0.00025       # 佣金 万2.5
@@ -33,5 +37,5 @@ data_quality:
   max_missing_ratio: 0.02   # 单日缺失股票比例上限，超过则阻断
 
 risk:
-  daily_loss_halt: 0.03     # 单日亏损 3% 熔断
+  daily_loss_halt: 0.03     # 单日亏损 3% 硬熔断：禁买+剥除当日订单 BUY
   position_deviation_alert: 0.02

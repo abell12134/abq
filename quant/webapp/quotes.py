@@ -34,7 +34,8 @@ _EM_TIMEOUT = 12.0
 
 INDICES = [
     {"instrument": "SH000001", "name": "上证指数"},
-    {"instrument": "SH000905", "name": "中证500(基准)"},
+    {"instrument": "SH000985", "name": "中证全指(基准)"},
+    {"instrument": "SH000905", "name": "中证500"},
     {"instrument": "SZ399006", "name": "创业板指"},
 ]
 

@@ -37,19 +37,37 @@ def run_checks(day: str, stage: str, account: str | None = None) -> list[dict]:
     if latest < day:
         add("CRIT", f"Qlib 数据最新 {latest} 落后于目标 {day}，盘前不可交易")
 
+    acc = C.load_account(account)
+
     if stage == "evening":
         if not _has(DATA / "signals" / f"{day}.csv"):
             add("CRIT", "当日信号缺失或未完成（.done 缺）")
         if not _has(dirs["orders"] / f"{day}.csv", need_done=False):
             add("WARN", "当日调仓清单未生成")
-        if C.load_account(account) is None:
+        if acc is None:
             add("WARN", "账户尚未建立（首次交易前需 record_fills --init-capital）")
+        # 熔断期间若订单仍含 BUY，说明剥仓/禁买未生效
+        of = dirs["orders"] / f"{day}.csv"
+        if acc and C.is_halted(acc=acc) and of.exists():
+            try:
+                import pandas as pd
+                odf = pd.read_csv(of)
+                n_buy = int((odf["side"].astype(str).str.upper() == "BUY").sum()) if not odf.empty else 0
+                if n_buy > 0:
+                    add("CRIT", f"熔断中但仍有 {n_buy} 笔 BUY 订单，请人工核查")
+                else:
+                    add("INFO", f"熔断生效中（halt_since={acc.get('halt_since')}），无新开仓")
+            except Exception as e:
+                add("WARN", f"熔断订单检查失败：{e}")
 
     if stage == "postclose":
         if not _has(dirs["fills"] / f"{day}.csv"):
             add("CRIT", "当日成交未回填（fills 缺失或未完成）")
         if not _has(dirs["nav"] / "holdings.csv"):
             add("WARN", "持仓文件未更新")
+        if acc and C.is_halted(acc=acc):
+            add("WARN", f"账户仍处于熔断（halt_since={acc.get('halt_since')}），"
+                "次日调仓应禁止买入")
 
     if not alerts:
         C.alert("INFO", f"[{stage}] 健康检查全部通过", day)

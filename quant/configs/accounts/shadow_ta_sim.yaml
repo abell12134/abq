@@ -1,0 +1,55 @@
+account:
+  name: shadow_ta_sim
+  # TA 定性否决影子线：与 live_manual_10k 同参，mode=simulated，开启 use_ta_veto。
+  # 过门禁前不得改 live；对照账户见 shadow_ctrl_sim。
+  mode: simulated
+  initial_capital: 12000
+  target_min_positions: 5
+  target_max_positions: 10
+  review_min_days: 40
+
+strategy:
+  topk: 7
+  n_drop: 1
+  hold_thresh: 10
+  max_weight: 0.2
+  min_positions: 5
+  max_positions: 10
+
+execution:
+  manual_order: false
+  simulated_fill: next_open
+  use_ump: true
+  use_ta_veto: true
+  ta_veto:
+    confidence_threshold: 0.7
+    max_vetoes: 1
+    debate_rounds: 1
+    timeout_sec: 600
+    # 零 Key：公告 cninfo→东财回退；新闻东财；基本面 baostock；舆情首期关闭
+    vendors:
+      announcements: [eastmoney, cninfo]
+      news: [eastmoney]
+      fundamentals: [baostock]
+      sentiment: []
+    lookback_days:
+      announcements: 30
+      news: 7
+    max_items:
+      announcements: 10
+      news: 12
+  risk_check: true
+  lot_size: 100
+  redeploy_residual_cash: true
+  exclude_boards: [chinext, star]
+  note: "影子线：LGBM+UMP+TA否决(公告/新闻/基本面+多轮辩论)，次日开盘价模拟成交。"
+
+review:
+  benchmark_annual_excess: 0.093
+  tracking_deviation_alert: 0.02
+  control_account: shadow_ctrl_sim
+  gate_min_days: 40
+  notes:
+    - "相对 shadow_ctrl_sim：超额IR提升或回撤下降，且换手不升高。"
+    - "否决组事后10日超额应差于通过组；日否决率≤30%。"
+    - "未过门禁不得开启 live_manual_10k 的 use_ta_veto。"

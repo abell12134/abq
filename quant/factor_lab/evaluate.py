@@ -1,4 +1,4 @@
-"""阶段3 因子评估：用 Qlib 在中证500 上计算因子的各项准入指标。
+"""阶段3 因子评估：用 Qlib 在全 A（默认）上计算因子的各项准入指标。
 
 指标（防前视：因子值只用当日及之前数据，标签为前向收益）：
   - rank_ic / icir         样本内 Rank IC 均值与 ICIR
@@ -27,9 +27,9 @@ def _rank_within_date(s: pd.Series) -> pd.Series:
 
 
 class Evaluator:
-    def __init__(self, market="csi500",
+    def __init__(self, market="all",
                  is_start="2019-01-01", is_end="2023-12-31",
-                 oos_start="2024-01-01", oos_end="2026-06-11"):
+                 oos_start="2024-01-01", oos_end="2026-07-16"):
         import qlib
         from qlib.data import D
         qlib.init(provider_uri=str(Path(PROVIDER).expanduser()), region="cn")

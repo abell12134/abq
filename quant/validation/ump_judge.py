@@ -232,7 +232,11 @@ def live_veto_instruments(day: str, score: pd.Series, lookback_days: int = 130) 
     load_start = (ts - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     panel, _ = load_panel(uni, load_start, day)
     from qlib.data import D
-    bench = D.features(["SH000905"], ["$close"], start_time=load_start,
+    import yaml
+    from pathlib import Path as _P
+    _cfg = yaml.safe_load((_P(__file__).resolve().parents[1] / "configs" / "global.yaml").read_text())
+    bench_code = _cfg.get("universe", {}).get("benchmark", "SH000985")
+    bench = D.features([bench_code], ["$close"], start_time=load_start,
                        end_time=day)["$close"].droplevel("instrument")
     fb = FeatureBuilder(panel, bench)
     return {inst for (_, inst) in judge.veto_set(sig_by_day, sig_days, fb)}
@@ -246,7 +250,11 @@ def _load_inputs(start: str, end: str, lookback_days: int = 130):
     load_start = (pd.Timestamp(start) - pd.Timedelta(days=lookback_days)).strftime("%Y-%m-%d")
     panel, _ = load_panel(uni, load_start, end)
     from qlib.data import D
-    bench = D.features(["SH000905"], ["$close"], start_time=load_start,
+    import yaml
+    from pathlib import Path as _P
+    _cfg = yaml.safe_load((_P(__file__).resolve().parents[1] / "configs" / "global.yaml").read_text())
+    bench_code = _cfg.get("universe", {}).get("benchmark", "SH000985")
+    bench = D.features([bench_code], ["$close"], start_time=load_start,
                        end_time=end)["$close"].droplevel("instrument")
     return sig_by_day, sig_days, panel, bench
 

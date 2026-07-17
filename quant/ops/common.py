@@ -226,7 +226,7 @@ def trade_status(instruments: list[str], day: str) -> pd.DataFrame:
 
 
 def benchmark_return(day: str, prev: str) -> float:
-    """基准（中证500）从 prev 收盘到 day 收盘的收益率。"""
+    """基准（global.yaml universe.benchmark）从 prev 收盘到 day 收盘的收益率。"""
     init_qlib()
     from qlib.data import D
     bench = CFG["universe"]["benchmark"]
@@ -267,8 +267,58 @@ def save_account(acc: dict, account: str | None = None) -> None:
 def init_account(capital: float, day: str, account: str | None = None) -> dict:
     acc = {"start_capital": float(capital), "start_date": day,
            "cash": float(capital), "last_fill_date": None,
-           "account": account or "legacy"}
+           "account": account or "legacy",
+           "halt_active": False, "halt_since": None}
     save_account(acc, account)
+    return acc
+
+
+def is_halted(account: str | None = None, acc: dict | None = None) -> bool:
+    """账户是否处于日亏熔断（禁止新开仓）。"""
+    a = acc if acc is not None else load_account(account)
+    return bool(a and a.get("halt_active"))
+
+
+def set_halt(day: str, account: str | None = None, reason: str = "") -> dict | None:
+    """触发日亏熔断：写 account.json，并尽量剥掉当日订单中的 BUY（次日不再开新仓）。"""
+    acc = load_account(account)
+    if acc is None:
+        return None
+    acc["halt_active"] = True
+    acc["halt_since"] = day
+    if reason:
+        acc["halt_reason"] = reason
+    save_account(acc, account)
+    # 当日 evening 已生成的订单在次日开盘执行：就地去掉 BUY，只保留减仓
+    orders = account_subdirs(account)["orders"] / f"{day}.csv"
+    if orders.exists():
+        try:
+            df = pd.read_csv(orders)
+            if not df.empty and "side" in df.columns:
+                kept = df[df["side"].astype(str).str.upper() != "BUY"]
+                n_drop = len(df) - len(kept)
+                if n_drop:
+                    kept.to_csv(orders, index=False)
+                    alert("CRIT",
+                          f"熔断：已从 {orders.name} 剔除 {n_drop} 笔 BUY，"
+                          f"次日仅执行减仓（{reason or 'daily_loss_halt'}）", day)
+        except Exception as e:
+            alert("WARN", f"熔断后剥除 BUY 失败：{e}", day)
+    return acc
+
+
+def clear_halt(account: str | None = None, day: str | None = None) -> dict | None:
+    """解除熔断（默认在熔断后下一张调仓清单生成后自动调用；也可人工解除）。"""
+    acc = load_account(account)
+    if acc is None:
+        return None
+    if not acc.get("halt_active"):
+        return acc
+    acc["halt_active"] = False
+    acc["halt_cleared_on"] = day or dt.date.today().strftime("%Y-%m-%d")
+    acc.pop("halt_reason", None)
+    save_account(acc, account)
+    alert("INFO", f"熔断已解除（halt_since={acc.get('halt_since')}）", day)
     return acc
 
 
