@@ -49,8 +49,8 @@ python research/rerun_backtest.py --recorder <id> --topk 50 --n_drop 3 --hold_th
                                          # 不重训，仅调组合参数快速迭代
 ```
 
-- 配置：`research/workflow_baseline.yaml`（Alpha158 + LGBM，**全 A `all`**，基准中证全指 SH000985；
-  TopK50 / n_drop3 / hold_thresh10）。旧中证500配置见 `workflow_baseline_csi500.yaml`
+- 配置：`research/workflow_baseline.yaml`（Alpha158 + LGBM，**中证500 `csi500`**，基准 SH000905；
+  TopK50 / n_drop3 / hold_thresh10）。全 A 实验配置见 `workflow_baseline_all.yaml`（IR 未过关）
 - 切分：训练 2010-2021 / 验证 2022-2023 / 测试 2024 至今（严格样本外）
 - 标签：5 日开盘价收益（1 日标签换手过高、被成本吃光，见 yaml 注释）
 - 回测约束：涨跌停 9.5% 限制、次日开盘价成交、双边费率含印花税与滑点

@@ -14,7 +14,7 @@ benchmark: &benchmark SH000905
 
 data_handler_config: &data_handler_config
   start_time: 2010-01-01
-  end_time: 2026-06-11
+  end_time: 2026-07-16
   fit_start_time: 2010-01-01
   fit_end_time: 2021-12-31
   instruments: *market
@@ -31,7 +31,7 @@ port_analysis_config: &port_analysis_config
                           # （实测：hold_thresh 由 1→10，净 IR 由 -0.17 升至 1.04）
   backtest:
     start_time: 2024-01-01
-    end_time: 2026-06-11
+    end_time: 2026-07-16
     account: 1000000
     benchmark: *benchmark
     exchange_kwargs:
@@ -71,7 +71,7 @@ task:
       segments:
         train: [2010-01-01, 2021-12-31]
         valid: [2022-01-01, 2023-12-31]
-        test: [2024-01-01, 2026-06-11]
+        test: [2024-01-01, 2026-07-16]
   record:
     - class: SignalRecord
       module_path: qlib.workflow.record_temp

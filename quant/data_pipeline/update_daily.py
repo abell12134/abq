@@ -102,6 +102,10 @@ def atomic_swap(new_dir: Path, data_dir: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--tag", default=None)
+    parser.add_argument(
+        "--force", action="store_true",
+        help="即使本地日历已覆盖 tag 也强制重新下载替换（修复残缺 release）",
+    )
     args = parser.parse_args()
 
     cfg = load_config()
@@ -113,9 +117,11 @@ def main() -> int:
 
     tag = args.tag or latest_release_tag()
     old_last = local_last_date(data_dir)
-    if old_last and old_last >= tag:
+    if old_last and old_last >= tag and not args.force:
         print(f"[OK] 本地数据({old_last})已覆盖 release {tag}，无需更新")
         return 0
+    if args.force and old_last and old_last >= tag:
+        print(f"[force] 本地已到 {old_last}，仍强制重下 release {tag}")
 
     with tempfile.TemporaryDirectory(dir=data_dir.parent) as tmp:
         work = Path(tmp)
@@ -135,6 +141,9 @@ def main() -> int:
 
         print("[3/3] 原子替换数据目录")
         atomic_swap(new_dir, data_dir)
+        # 防止 ensure_qlib_data 因缺少 marker 用旧分卷覆盖刚下的 release
+        marker = data_dir / ".abq_data_ready"
+        marker.write_text(f"updated_by_update_daily tag={tag}\n")
 
     print(f"[OK] 数据已更新至 release {tag}（日历截止 {local_last_date(data_dir)}）")
     return 0

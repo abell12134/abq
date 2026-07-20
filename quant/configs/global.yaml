@@ -13,8 +13,8 @@ paths:
   reports: ~/project/quant/data/reports
 
 universe:
-  market: all               # 全 A（qlib instruments=all）；回退中证500见 research/workflow_baseline_csi500.yaml
-  benchmark: SH000985       # 中证全指（与全 A 匹配；原 csi500 用 SH000905）
+  market: csi500            # 生产默认中证500（全 A 实验未过 IR 门禁，见 workflow_baseline_all.yaml）
+  benchmark: SH000905       # 中证500；全 A 研究用 SH000985
 
 strategy:
   topk: 50                  # 持仓数量（与 research/workflow_baseline.yaml 保持一致）

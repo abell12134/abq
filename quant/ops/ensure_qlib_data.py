@@ -55,8 +55,10 @@ def concat_sha(parts: list[Path]) -> str:
 
 
 def already_ready() -> bool:
+    # 只看日历是否存在，不依赖 marker：update_daily 原子替换后没有 marker，
+    # 若要求 marker 会误触发分卷重解压，覆盖刚下好的最新行情。
     cal = EXTRACT_ROOT / "cn_data" / "calendars" / "day.txt"
-    return MARKER.exists() and cal.exists()
+    return cal.exists()
 
 
 def extract(force: bool = False) -> Path:
