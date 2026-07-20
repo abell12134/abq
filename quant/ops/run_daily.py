@@ -172,9 +172,10 @@ def postclose(args, day: str) -> int:
     mon = [PY, str(QUANT / "ops" / "monitor.py"), "--day", day, "--stage", "postclose"]
     rec = [PY, str(QUANT / "execution" / "reconcile.py"), "--day", day]
     nav = [PY, str(QUANT / "ops" / "compute_nav.py"), "--day", day]
+    snap = [PY, str(QUANT / "ops" / "snapshot_positions.py"), "--day", day]
     rpt = [PY, str(QUANT / "ops" / "daily_report.py"), "--day", day]
     if args.account:
-        for cmd in (mon, rec, nav, rpt):
+        for cmd in (mon, rec, nav, snap, rpt):
             cmd += ["--account", args.account]
     if order_day:
         rec += ["--order-day", order_day]
@@ -184,6 +185,7 @@ def postclose(args, day: str) -> int:
     step("对账", rec, day, fatal=False)  # 对账有差异返回非零，但不应阻断净值/日报
     if not step("计算净值", nav, day):
         return 1
+    step("个股收盘快照", snap, day, fatal=False)  # 展示用，失败不阻断日报
     if not step("出日报", rpt, day):
         return 1
     C.alert("INFO", "postclose 流水线完成", day)

@@ -1,4 +1,17 @@
-const ACCOUNTS = ["research_sim_100k", "live_manual_10k"];
+const ACCOUNTS = [
+  "research_sim_100k",
+  "live_manual_10k",
+  "shadow_ctrl_sim",
+  "shadow_ta_sim",
+];
+// 双线对比页仍只比研究 vs 实盘（影子 A/B 用 review_ta_overlay）
+const COMPARE_ACCOUNTS = ["research_sim_100k", "live_manual_10k"];
+const ACCOUNT_SHORT = {
+  research_sim_100k: "研究模拟线",
+  live_manual_10k: "实盘线",
+  shadow_ctrl_sim: "对照影子线",
+  shadow_ta_sim: "TA影子线",
+};
 const charts = {};
 const fmt = (v, d = 2) => (v == null || isNaN(v)) ? "-" : Number(v).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v, d = 2) => (v == null || isNaN(v)) ? "-" : (v >= 0 ? "+" : "") + Number(v).toFixed(d) + "%";
@@ -16,7 +29,17 @@ function mkChart(canvas, cfg) {
   charts[key] = new Chart(canvas, cfg);
 }
 
-const COLORS = { research: "#4f9cf9", live: "#d29922", bench: "#8b98a9", green: "#3fb950", red: "#f85149" };
+const COLORS = {
+  research: "#4f9cf9", live: "#d29922", bench: "#8b98a9",
+  green: "#3fb950", red: "#f85149",
+  shadow_ctrl: "#a371f7", shadow_ta: "#3fb950",
+};
+const ACCOUNT_COLORS = {
+  research_sim_100k: COLORS.research,
+  live_manual_10k: COLORS.live,
+  shadow_ctrl_sim: COLORS.shadow_ctrl,
+  shadow_ta_sim: COLORS.shadow_ta,
+};
 const lineDS = (label, data, color, fill = false) => ({
   label, data, borderColor: color, backgroundColor: color + "33",
   borderWidth: 2, pointRadius: 0, tension: .2, fill,
@@ -56,9 +79,18 @@ async function loadOverview() {
     return labels.map(d => (m.has(d) ? m.get(d) : null));
   };
   const ds = [];
-  if (series[0].dates.length) ds.push(lineDS("研究模拟线", alignBy(series[0].dates, series[0].series.cum_ret), COLORS.research));
-  if (series[1].dates.length) ds.push(lineDS("实盘线", alignBy(series[1].dates, series[1].series.cum_ret), COLORS.live));
-  if (series[0].dates.length) ds.push(lineDS("基准", alignBy(series[0].dates, series[0].series.cum_bench), COLORS.bench));
+  ACCOUNTS.forEach((a, i) => {
+    if (!series[i].dates.length) return;
+    ds.push(lineDS(
+      ACCOUNT_SHORT[a] || a,
+      alignBy(series[i].dates, series[i].series.cum_ret),
+      ACCOUNT_COLORS[a] || COLORS.research,
+    ));
+  });
+  // 基准仍取研究线（与历史口径一致）
+  if (series[0].dates.length) {
+    ds.push(lineDS("基准", alignBy(series[0].dates, series[0].series.cum_bench), COLORS.bench));
+  }
   mkChart(document.getElementById("ovChart"), { type: "line", data: { labels, datasets: ds }, options: { ...baseOpts, spanGaps: true } });
 }
 
@@ -175,6 +207,11 @@ async function loadAccount(account) {
     mkChartC(panel, ".cashChart", "cash_" + account, { type: "line", data: { labels: L, datasets: [lineDS("现金", s.cash, COLORS.bench, true), lineDS("持仓市值", s.position_value, COLORS.research, true)] }, options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, stacked: true } } } });
   }
 
+  // 个股每日收盘独立加载：即使失败也不影响本页其它模块
+  getJSON(`/api/account/${account}/positions-daily`)
+    .then(posDaily => renderPosDaily(panel, "pos_daily_" + account, posDaily))
+    .catch(e => { console.error(e); renderPosDaily(panel, "pos_daily_" + account, null); });
+
   renderTable(panel.querySelector(".holdings"), hold.holdings,
     [["instrument", "标的"], ["shares", "股数"], ["last_price", "现价"], ["market_value", "市值"], ["weight_pct", "权重%"], ["entry_date", "建仓日"]],
     "暂无持仓", "instrument");
@@ -191,6 +228,45 @@ async function loadAccount(account) {
     b.onclick = async () => { rv.innerHTML = await (await fetch(`/api/account/${account}/report/${name}`)).text(); };
     rb.appendChild(b);
   });
+}
+
+// 个股每日收盘（近一月）：累计涨幅多线图 + 汇总表
+const POS_LINE_COLORS = ["#4f9cf9", "#d29922", "#3fb950", "#a371f7", "#f85149",
+  "#56d4dd", "#e3b341", "#db61a2", "#8b98a9", "#2ea043", "#f0883e", "#6cb6ff"];
+
+function renderPosDaily(panel, chartKey, data) {
+  const box = panel.querySelector(".pos-daily");
+  const canvas = panel.querySelector(".posDailyChart");
+  if (!data || !data.instruments || !data.instruments.length) {
+    box.innerHTML = '<div class="empty">暂无个股收盘快照，运行 snapshot_positions.py --backfill 生成。</div>';
+    if (charts[chartKey]) { charts[chartKey].destroy(); delete charts[chartKey]; }
+    return;
+  }
+  const L = data.dates;
+  const ds = data.instruments.map((it, i) => lineDS(
+    it.instrument, it.cum, POS_LINE_COLORS[i % POS_LINE_COLORS.length]));
+  canvas.dataset.k = chartKey;
+  mkChart(canvas, { type: "line", data: { labels: L, datasets: ds },
+    options: { ...baseOpts, spanGaps: true } });
+
+  let h = "<table><thead><tr><th>标的</th><th>状态</th><th>最新收盘</th>"
+    + "<th>当日涨跌幅</th><th>近一月</th></tr></thead><tbody>";
+  for (const it of data.instruments) {
+    let status;
+    if (it.held) status = `<span class="badge done">持仓</span> ${it.shares}股`;
+    else if (it.pending_buy) status = `<span class="badge pending">待买入</span> ${it.shares}股`;
+    else status = '<span class="badge no_trade">已清仓</span>';
+    h += "<tr>"
+      + `<td class="clickable" data-inst="${it.instrument}">${it.instrument}</td>`
+      + `<td>${status}</td>`
+      + `<td>${fmt(it.last_close)}</td>`
+      + `<td class="${cls(it.last_chg)}">${pct(it.last_chg)}</td>`
+      + `<td class="${cls(it.month_ret)}">${pct(it.month_ret)}</td>`
+      + "</tr>";
+  }
+  box.innerHTML = h + "</tbody></table>";
+  box.querySelectorAll("td.clickable").forEach(td =>
+    td.onclick = () => openStock(td.dataset.inst));
 }
 
 function mkChartC(panel, sel, key, cfg) {
@@ -299,10 +375,11 @@ async function loadCompare() {
   const sum = c.summary;
   const box = document.getElementById("cmp-summary");
   box.className = "cards"; box.innerHTML = "";
-  for (const a of ACCOUNTS) {
+  for (const a of COMPARE_ACCOUNTS) {
     const s = sum[a];
-    if (!s.days) { box.appendChild(card(a, "未初始化", "")); continue; }
-    box.appendChild(card(a, pct((s.cum_ret || 0) * 100),
+    const label = ACCOUNT_SHORT[a] || a;
+    if (!s || !s.days) { box.appendChild(card(label, "未初始化", "")); continue; }
+    box.appendChild(card(label, pct((s.cum_ret || 0) * 100),
       `净值 ${fmt(s.nav)} · 费用 ${fmt(s.fee)} (${pct((s.fee_ratio || 0) * 100)}) · 现金 ${pct((s.cash_ratio || 0) * 100)}`,
       s.cum_ret >= 0 ? "pos" : "neg"));
   }

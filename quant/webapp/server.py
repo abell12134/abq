@@ -1,10 +1,10 @@
 """阶段5 后台常驻看板服务：FastAPI + 内置 APScheduler。
 
-- Web 看板（默认 0.0.0.0:8000）：两条线净值/超额曲线、持仓、成交、对账、双线对比、告警。
+- Web 看板（默认 0.0.0.0:8000）：多账户净值/超额、持仓、成交、对账、研究vs实盘对比、告警。
 - 内置定时（Asia/Shanghai，工作日）：
-    22:30 evening   两条线生成次日调仓清单（含 UMP/风控预检）
-    23:30 postclose 两条线按 mode 处理成交（simulated→自动模拟；manual→读人工回填）→对账→净值→日报
-    周五 23:45 双线复盘
+    22:30 evening   各账户生成次日调仓清单（含 UMP；影子 TA 线额外跑定性否决）
+    23:30 postclose 各账户按 mode 处理成交（simulated→自动模拟；manual→读人工回填）→对账→净值→日报
+    周五 23:45 研究 vs 实盘双线复盘
   定时任务即调用经过验证的 ops/run_daily.py，服务进程只做编排与展示。
 
 启动：bash webapp/serve.sh start    （或 uvicorn webapp.server:app --host 0.0.0.0 --port 8000）
@@ -42,9 +42,20 @@ PY = sys.executable
 RUN_DAILY = QUANT / "ops" / "run_daily.py"
 REVIEW = QUANT / "ops" / "review_accounts.py"
 
-# 看板纳管的账户（研究模拟线 + 实盘线）
-ACCOUNTS = ["research_sim_100k", "live_manual_10k"]
-RESEARCH, LIVE = ACCOUNTS[0], ACCOUNTS[1]
+# 看板纳管的账户：研究 + 实盘 + TA 影子 A/B（同参 1.2 万，过门禁前不改 live 的 use_ta_veto）
+ACCOUNTS = [
+    "research_sim_100k",
+    "live_manual_10k",
+    "shadow_ctrl_sim",
+    "shadow_ta_sim",
+]
+RESEARCH, LIVE = "research_sim_100k", "live_manual_10k"
+ACCOUNT_LABELS = {
+    "research_sim_100k": "研究模拟线",
+    "live_manual_10k": "实盘线",
+    "shadow_ctrl_sim": "对照影子线",
+    "shadow_ta_sim": "TA影子线",
+}
 TZ = "Asia/Shanghai"
 
 templates = Jinja2Templates(directory=str(HERE / "templates"))
@@ -55,7 +66,8 @@ def _account_label(account: str) -> str:
     cfg = C.account_config(account).get("account", {})
     cap = cfg.get("initial_capital")
     mode = cfg.get("mode")
-    return f"{account}（{cap:,.0f}元·{mode}）" if cap else account
+    name = ACCOUNT_LABELS.get(account, account)
+    return f"{name}（{cap:,.0f}元·{mode}）" if cap else name
 
 
 def daily_series(account: str) -> dict:
@@ -82,6 +94,80 @@ def daily_series(account: str) -> dict:
             "cum_excess": (cum_excess * 100).round(3).tolist(),
         },
     }
+
+
+def positions_daily(account: str, window: int = 22) -> dict:
+    """个股每日收盘快照（近一月）：逐股对齐到共同交易日，附当前持仓状态。"""
+    f = C.account_subdirs(account)["nav"] / "positions_daily.csv"
+    if not f.exists():
+        return {"account": account, "dates": [], "instruments": []}
+    df = S.read_csv("positions_daily", f)
+    if df.empty:
+        return {"account": account, "dates": [], "instruments": []}
+
+    dates = sorted(df["date"].astype(str).unique())[-window:]
+    dset = set(dates)
+    df = df[df["date"].astype(str).isin(dset)]
+
+    # 当前持仓（展示状态用）
+    held: dict[str, dict] = {}
+    hf = C.account_subdirs(account)["nav"] / "holdings.csv"
+    if hf.exists():
+        h = S.read_csv("holdings", hf)
+        for r in h.itertuples():
+            held[str(r.instrument)] = {"shares": int(r.shares),
+                                       "entry_date": str(r.entry_date)[:10]
+                                       if pd.notna(r.entry_date) else ""}
+
+    # 待买入（最新调仓清单 BUY 指令，尚未成为持仓）
+    pending_buys: dict[str, int] = {}
+    od = _latest_order_day(account)
+    if od:
+        of = C.account_subdirs(account)["orders"] / f"{od}.csv"
+        if of.exists():
+            try:
+                o = S.read_csv("orders", of)
+                for r in o[o["side"].astype(str).str.upper() == "BUY"].itertuples():
+                    if str(r.instrument) not in held:
+                        pending_buys[str(r.instrument)] = int(r.shares)
+            except Exception:
+                pass
+
+    out = []
+    for inst, sub in df.groupby("instrument"):
+        sub = sub.set_index("date")
+        closes = [round(float(sub.loc[d, "close"]), 3) if d in sub.index else None
+                  for d in dates]
+        chg = [round(float(sub.loc[d, "chg_pct"]), 3) if d in sub.index else None
+               for d in dates]
+        # 窗口内累计涨幅：以首个有效收盘为基准
+        base = next((c for c in closes if c is not None), None)
+        cum = [round((c / base - 1) * 100, 3) if (c is not None and base) else None
+               for c in closes]
+        last_close = next((c for c in reversed(closes) if c is not None), None)
+        last_chg = next((c for c in reversed(chg) if c is not None), None)
+        month_ret = next((c for c in reversed(cum) if c is not None), None)
+        info = held.get(str(inst), {})
+        is_held = str(inst) in held
+        is_pending = str(inst) in pending_buys
+        out.append({
+            "instrument": str(inst),
+            "held": is_held,
+            "pending_buy": is_pending,
+            "shares": info.get("shares", pending_buys.get(str(inst), 0)),
+            "entry_date": info.get("entry_date", ""),
+            "closes": closes,
+            "chg": chg,
+            "cum": cum,
+            "last_close": last_close,
+            "last_chg": last_chg,
+            "month_ret": month_ret,
+        })
+    # 排序：持仓 → 待买入 → 其它；组内按当月涨幅降序
+    def _rank(x):
+        return 0 if x["held"] else (1 if x["pending_buy"] else 2)
+    out.sort(key=lambda x: (_rank(x), -(x["month_ret"] or 0)))
+    return {"account": account, "dates": dates, "instruments": out}
 
 
 def holdings_view(account: str) -> list[dict]:
@@ -333,9 +419,19 @@ app = FastAPI(title="A股量化双线看板", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
+def _asset_ver() -> int:
+    """静态资源版本号（取 app.js/style.css 最新修改时间），用于前端缓存击穿。"""
+    files = [HERE / "static" / "app.js", HERE / "static" / "style.css"]
+    mtimes = [f.stat().st_mtime for f in files if f.exists()]
+    return int(max(mtimes)) if mtimes else 0
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return templates.TemplateResponse(request, "index.html", {"accounts": ACCOUNTS})
+    resp = templates.TemplateResponse(
+        request, "index.html", {"accounts": ACCOUNTS, "ver": _asset_ver()})
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.get("/api/overview")
@@ -368,6 +464,12 @@ def api_daily(account: str):
 def api_holdings(account: str):
     _check(account)
     return {"account": account, "holdings": holdings_view(account)}
+
+
+@app.get("/api/account/{account}/positions-daily")
+def api_positions_daily(account: str):
+    _check(account)
+    return positions_daily(account)
 
 
 @app.get("/api/account/{account}/fills")

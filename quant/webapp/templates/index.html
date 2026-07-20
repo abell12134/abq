@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>A股量化 · 双线看板</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <title>A股量化 · 多账户看板</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ ver }}" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>A股量化 · 双线看板</h1>
+    <h1>A股量化 · 多账户看板</h1>
     <div class="meta">
       <span id="data-day">数据日: -</span>
       <span id="now">-</span>
@@ -21,6 +21,8 @@
     <button class="tab active" data-tab="overview">总览</button>
     <button class="tab" data-tab="research_sim_100k">研究模拟线</button>
     <button class="tab" data-tab="live_manual_10k">实盘线</button>
+    <button class="tab" data-tab="shadow_ctrl_sim">对照影子线</button>
+    <button class="tab" data-tab="shadow_ta_sim">TA影子线</button>
     <button class="tab" data-tab="compare">双线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
@@ -37,6 +39,8 @@
     <!-- 账户页（模板，JS 克隆填充） -->
     <section id="research_sim_100k" class="panel account-panel"></section>
     <section id="live_manual_10k" class="panel account-panel"></section>
+    <section id="shadow_ctrl_sim" class="panel account-panel"></section>
+    <section id="shadow_ta_sim" class="panel account-panel"></section>
 
     <!-- 双线对比 -->
     <section id="compare" class="panel">
@@ -71,6 +75,10 @@
       <div class="chart-box"><h3>持仓数 / 换手(%)</h3><canvas class="posChart"></canvas></div>
       <div class="chart-box"><h3>现金 vs 持仓市值</h3><canvas class="cashChart"></canvas></div>
     </div>
+    <h3>操作个股 · 每日收盘（近一月）</h3>
+    <p class="panel-desc">收盘后由本地数据记录，非实时。含当前持仓与近一月买卖过的标的。</p>
+    <div class="chart-box"><h3>各股累计涨幅（%，窗口起点归零）</h3><canvas class="posDailyChart"></canvas></div>
+    <div class="pos-daily table-wrap"></div>
     <h3>当前持仓</h3>
     <div class="holdings table-wrap"></div>
     <h3>最近成交</h3>
@@ -101,6 +109,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ ver }}"></script>
 </body>
 </html>

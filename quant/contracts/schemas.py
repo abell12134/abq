@@ -37,6 +37,10 @@ SCHEMAS: dict[str, dict[str, str]] = {
     "daily": {"date": "date", "nav": "float", "cash": "float", "position_value": "float",
               "n_pos": "int", "turnover": "float", "daily_ret": "float",
               "bench_ret": "float", "excess_ret": "float"},
+    # 个股每日收盘快照（离线，本地 qlib EOD）：close 为真实收盘价（后复权还原），
+    # chg_pct 为按复权价算的当日涨跌幅（%）。仅记录价格与涨跌幅，逐日持仓在展示侧现算。
+    "positions_daily": {"date": "date", "instrument": "str", "close": "float",
+                        "chg_pct": "float"},
 }
 
 
