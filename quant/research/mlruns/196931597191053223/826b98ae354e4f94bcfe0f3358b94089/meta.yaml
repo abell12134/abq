@@ -1,0 +1,15 @@
+artifact_uri: file:./mlruns/196931597191053223/826b98ae354e4f94bcfe0f3358b94089/artifacts
+end_time: 1785728386037
+entry_point_name: ''
+experiment_id: '196931597191053223'
+lifecycle_stage: active
+run_id: 826b98ae354e4f94bcfe0f3358b94089
+run_name: mlflow_recorder
+run_uuid: 826b98ae354e4f94bcfe0f3358b94089
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1785728341052
+status: 3
+tags: []
+user_id: abel

@@ -1,0 +1,84 @@
+# 方案 C：在 workflow_baseline.yaml 上加强 LGBM 正则、降低学习率
+# 目标：缓解 valid l2 过早恶化导致的 20 轮 early stop
+# 用法：python run_baseline.py --config workflow_baseline_planC.yaml
+
+qlib_init:
+  provider_uri: "datasets/qlib_data/cn_data"
+  region: cn
+
+market: &market csi500
+benchmark: &benchmark SH000905
+
+data_handler_config: &data_handler_config
+  start_time: 2010-01-01
+  end_time: 2026-07-31
+  fit_start_time: 2010-01-01
+  fit_end_time: 2021-12-31
+  instruments: *market
+
+port_analysis_config: &port_analysis_config
+  strategy:
+    class: TopkDropoutStrategy
+    module_path: qlib.contrib.strategy.signal_strategy
+    kwargs:
+      signal: <PRED>
+      topk: 50
+      n_drop: 3
+      hold_thresh: 10
+  backtest:
+    start_time: 2024-01-01
+    end_time: 2026-07-31
+    account: 1000000
+    benchmark: *benchmark
+    exchange_kwargs:
+      limit_threshold: 0.095
+      deal_price: open
+      open_cost: 0.0015
+      close_cost: 0.002
+      min_cost: 5
+
+task:
+  model:
+    class: LGBModel
+    module_path: qlib.contrib.model.gbdt
+    kwargs:
+      loss: mse
+      colsample_bytree: 0.8879
+      learning_rate: 0.02          # 原 0.0421 → 更慢学习
+      subsample: 0.8789
+      lambda_l1: 500.0             # 原 205.7 → 更强 L1
+      lambda_l2: 1000.0            # 原 580.9 → 更强 L2
+      max_depth: 8
+      num_leaves: 127              # 原 210 → 降复杂度
+      num_threads: 2
+      early_stopping_rounds: 100   # 原 50 → 给更多耐心
+      num_boost_round: 2000        # 原 1000 → 配合更低 lr
+  dataset:
+    class: DatasetH
+    module_path: qlib.data.dataset
+    kwargs:
+      handler:
+        class: Alpha158PlusLab
+        module_path: alpha158_plus_lab
+        kwargs:
+          <<: *data_handler_config
+          label: [["Ref($open, -6) / Ref($open, -1) - 1"], ["LABEL0"]]
+      segments:
+        train: [2010-01-01, 2021-12-31]
+        valid: [2022-01-01, 2023-12-31]
+        test: [2024-01-01, 2026-07-31]
+  record:
+    - class: SignalRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        model: <MODEL>
+        dataset: <DATASET>
+    - class: SigAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        ana_long_short: false
+        ann_scaler: 252
+    - class: PortAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        config: *port_analysis_config

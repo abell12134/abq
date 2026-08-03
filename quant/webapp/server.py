@@ -527,7 +527,7 @@ def api_alerts():
 
 @app.get("/api/quote/{instrument}")
 def api_quote(instrument: str, klt: int = 101, n: int = 120, fqt: int = 1):
-    """个股/指数行情：klt=101日线/102周线/1分钟等；优先东财(当日)，回退本地 qlib(EOD)。"""
+    """个股/指数行情：klt=101日线/102周线/1分钟等；优先腾讯 TXApi，其次东财，回退本地 qlib(EOD)。"""
     if not instrument[:2].isalpha() or not instrument[2:].isdigit():
         raise HTTPException(400, "标的格式应为 SH600000 / SZ000001")
     return Q.quote(instrument.upper(), klt=klt, lmt=min(max(n, 5), 500), fqt=fqt)

@@ -1,0 +1,694 @@
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_cached.txt b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_cached.txt
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_diff.txt b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_diff.txt
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_status.txt b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_status.txt
+deleted file mode 100644
+index ea5bf51..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_status.txt
++++ /dev/null
+@@ -1,9 +0,0 @@
+-On branch main
+-Your branch is up to date with 'origin/main'.
+-
+-Untracked files:
+-  (use "git add <file>..." to include in what will be committed)
+-	Users/
+-	mlruns/
+-
+-nothing added to commit but untracked files present (use "git add" to track)
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/label.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/label.pkl
+deleted file mode 100644
+index ac5fe3d..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/label.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/params.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/params.pkl
+deleted file mode 100644
+index 6d7632f..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/params.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicator_analysis_1day.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicator_analysis_1day.pkl
+deleted file mode 100644
+index cd02846..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicator_analysis_1day.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day.pkl
+deleted file mode 100644
+index 735b57c..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day_obj.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day_obj.pkl
+deleted file mode 100644
+index f5f50a2..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day_obj.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/port_analysis_1day.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/port_analysis_1day.pkl
+deleted file mode 100644
+index 0f57d33..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/port_analysis_1day.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/positions_normal_1day.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/positions_normal_1day.pkl
+deleted file mode 100644
+index a5022af..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/positions_normal_1day.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/report_normal_1day.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/report_normal_1day.pkl
+deleted file mode 100644
+index 383ffc2..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/report_normal_1day.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/pred.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/pred.pkl
+deleted file mode 100644
+index a108536..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/pred.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ic.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ic.pkl
+deleted file mode 100644
+index 6450731..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ic.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ric.pkl b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ric.pkl
+deleted file mode 100644
+index fb09281..0000000
+Binary files a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ric.pkl and /dev/null differ
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/meta.yaml b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/meta.yaml
+deleted file mode 100644
+index ab66546..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/meta.yaml
++++ /dev/null
+@@ -1,15 +0,0 @@
+-artifact_uri: file:///home/ubuntu/project/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts
+-end_time: 1784269842191
+-entry_point_name: ''
+-experiment_id: '486167064345159889'
+-lifecycle_stage: active
+-run_id: 07ea276350ec4ee3bd70daddbe612f6e
+-run_name: mlflow_recorder
+-run_uuid: 07ea276350ec4ee3bd70daddbe612f6e
+-source_name: ''
+-source_type: 4
+-source_version: ''
+-start_time: 1784269716121
+-status: 3
+-tags: []
+-user_id: abel
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.annualized_return b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.annualized_return
+deleted file mode 100644
+index b97bc95..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.annualized_return
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842176 -0.00983943182881751 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.information_ratio b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.information_ratio
+deleted file mode 100644
+index 24c177b..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.information_ratio
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842184 -0.038311640256835436 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.max_drawdown b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.max_drawdown
+deleted file mode 100644
+index e52663a..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.max_drawdown
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842184 -0.4445287726227914 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.mean b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.mean
+deleted file mode 100644
+index 794e67b..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.mean
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842157 -4.1342150541250044e-05 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.std b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.std
+deleted file mode 100644
+index b6c425e..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.std
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842157 0.01664756796190489 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.annualized_return b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.annualized_return
+deleted file mode 100644
+index 50f1b99..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.annualized_return
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842090 -0.005007947427369764 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.information_ratio b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.information_ratio
+deleted file mode 100644
+index 96a2a5d..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.information_ratio
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842126 -0.019502228252736974 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.max_drawdown b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.max_drawdown
+deleted file mode 100644
+index f2c6281..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.max_drawdown
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842156 -0.4330624473740811 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.mean b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.mean
+deleted file mode 100644
+index d86622b..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.mean
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842084 -2.1041795913318336e-05 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.std b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.std
+deleted file mode 100644
+index 3c20ad2..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.std
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842088 0.01664512448375734 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.ffr b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.ffr
+deleted file mode 100644
+index 2c3024f..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.ffr
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842185 0.9973262032085561 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pa b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pa
+deleted file mode 100644
+index 093ec44..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pa
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842185 0.0 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pos b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pos
+deleted file mode 100644
+index fc6b93e..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pos
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269842186 0.0 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/IC b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/IC
+deleted file mode 100644
+index 0d5c80f..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/IC
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269828138 0.0726627376447431 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/ICIR b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/ICIR
+deleted file mode 100644
+index 3bd853d..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/ICIR
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269828139 0.6774691167407625 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank IC b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank IC
+deleted file mode 100644
+index 5f615fe..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank IC	
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269828139 0.08411377793833164 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank ICIR b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank ICIR
+deleted file mode 100644
+index 4592338..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank ICIR	
++++ /dev/null
+@@ -1 +0,0 @@
+-1784269828139 0.7329620745835066 0
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.train b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.train
+deleted file mode 100644
+index 39da607..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.train
++++ /dev/null
+@@ -1,82 +0,0 @@
+-1784269826200 0.9950264610122188 0
+-1784269826200 0.9907108283417447 1
+-1784269826201 0.9866276996241338 2
+-1784269826201 0.9828284761922308 3
+-1784269826201 0.9792358240007858 4
+-1784269826201 0.9759615547735754 5
+-1784269826201 0.972865250886439 6
+-1784269826202 0.9699861708781449 7
+-1784269826202 0.9673752572200178 8
+-1784269826202 0.9648996569909147 9
+-1784269826202 0.9626013185091129 10
+-1784269826202 0.9604561529351185 11
+-1784269826203 0.9584212364743129 12
+-1784269826203 0.9566133023935319 13
+-1784269826203 0.9548880008434644 14
+-1784269826203 0.9532864556484096 15
+-1784269826203 0.9517720911405799 16
+-1784269826203 0.950361112485285 17
+-1784269826204 0.9490624348945309 18
+-1784269826204 0.9478372625739885 19
+-1784269826204 0.9467025636673483 20
+-1784269826204 0.945640907837829 21
+-1784269826204 0.9445950393313909 22
+-1784269826205 0.9436742544605428 23
+-1784269826205 0.9427432692158823 24
+-1784269826205 0.9418866385146162 25
+-1784269826205 0.9411039813120053 26
+-1784269826205 0.9403205742132545 27
+-1784269826206 0.939639708925558 28
+-1784269826206 0.938972807217814 29
+-1784269826206 0.9383304827306935 30
+-1784269826206 0.9377068215432257 31
+-1784269826206 0.9371544805284614 32
+-1784269826207 0.9366180733850898 33
+-1784269826207 0.9360799747827369 34
+-1784269826207 0.9355858468480672 35
+-1784269826207 0.9351268379709585 36
+-1784269826207 0.934737863523573 37
+-1784269826208 0.9343299080465387 38
+-1784269826208 0.9339011711812942 39
+-1784269826208 0.9335231225588099 40
+-1784269826208 0.9331752087521107 41
+-1784269826208 0.93281992013312 42
+-1784269826209 0.9324523597616188 43
+-1784269826209 0.9321365226226836 44
+-1784269826209 0.9318256607967698 45
+-1784269826209 0.9315457407330597 46
+-1784269826209 0.9312890712224792 47
+-1784269826210 0.9310227479105 48
+-1784269826210 0.9307635945070206 49
+-1784269826210 0.9304996079438765 50
+-1784269826210 0.9302736987631072 51
+-1784269826210 0.9300589439840364 52
+-1784269826211 0.9298496916055581 53
+-1784269826211 0.9296341749663457 54
+-1784269826211 0.9294570433208954 55
+-1784269826211 0.9292803965978671 56
+-1784269826211 0.9290939420186227 57
+-1784269826212 0.9289155754640407 58
+-1784269826212 0.9287316177229387 59
+-1784269826212 0.9285737518113449 60
+-1784269826212 0.9284081542584626 61
+-1784269826212 0.9282550639343323 62
+-1784269826213 0.9281097797528143 63
+-1784269826213 0.9279540347877137 64
+-1784269826213 0.9278025261550423 65
+-1784269826213 0.9276620198863136 66
+-1784269826213 0.9275262248140197 67
+-1784269826214 0.9273858346087436 68
+-1784269826214 0.9272553845060303 69
+-1784269826214 0.9271287275644354 70
+-1784269826214 0.9269945159910778 71
+-1784269826214 0.9268666012685846 72
+-1784269826215 0.9267360087305818 73
+-1784269826215 0.9265927413948489 74
+-1784269826215 0.9264823507410626 75
+-1784269826215 0.9263646173101494 76
+-1784269826215 0.9262574601633302 77
+-1784269826216 0.9261493145342128 78
+-1784269826216 0.9260464271068027 79
+-1784269826216 0.9259388223964196 80
+-1784269826216 0.9258406181170407 81
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.valid b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.valid
+deleted file mode 100644
+index 49d5bcc..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.valid
++++ /dev/null
+@@ -1,82 +0,0 @@
+-1784269826216 0.9992687254867604 0
+-1784269826217 0.9988029839960963 1
+-1784269826217 0.9983783765212954 2
+-1784269826217 0.9979617313228107 3
+-1784269826217 0.9975790311113264 4
+-1784269826218 0.9972377096960794 5
+-1784269826218 0.9969297472951686 6
+-1784269826218 0.9966341533424146 7
+-1784269826218 0.9963808659469026 8
+-1784269826218 0.99616346348182 9
+-1784269826219 0.9959609032167551 10
+-1784269826219 0.9957718383760465 11
+-1784269826219 0.9955795051413245 12
+-1784269826219 0.9954475436513778 13
+-1784269826219 0.9953246739966617 14
+-1784269826220 0.9952106037930186 15
+-1784269826220 0.9951000474531412 16
+-1784269826220 0.9950030065550233 17
+-1784269826220 0.9949319143304373 18
+-1784269826220 0.9948552557626904 19
+-1784269826221 0.9948094055517877 20
+-1784269826221 0.994750884850981 21
+-1784269826221 0.9947145714618933 22
+-1784269826221 0.9946989614637441 23
+-1784269826221 0.9946808163918592 24
+-1784269826222 0.9946389873847608 25
+-1784269826222 0.9946214334684432 26
+-1784269826222 0.994598918814863 27
+-1784269826222 0.9945780863405658 28
+-1784269826222 0.9945630376916312 29
+-1784269826223 0.9945611275487606 30
+-1784269826223 0.9945602066696125 31
+-1784269826223 0.9945738865844229 32
+-1784269826223 0.994571569110046 33
+-1784269826223 0.9945883615809868 34
+-1784269826224 0.9945757745037733 35
+-1784269826224 0.9945816054814463 36
+-1784269826224 0.9945976231945843 37
+-1784269826224 0.99460053416633 38
+-1784269826224 0.9946053562247835 39
+-1784269826225 0.9946152468848207 40
+-1784269826225 0.9946403783222395 41
+-1784269826225 0.9946515980165231 42
+-1784269826225 0.994658294514882 43
+-1784269826225 0.9946608447021303 44
+-1784269826226 0.9946909641660615 45
+-1784269826226 0.9946992950947058 46
+-1784269826226 0.9947081944509878 47
+-1784269826226 0.9947221625163338 48
+-1784269826226 0.9947261836131084 49
+-1784269826227 0.9947523947479474 50
+-1784269826227 0.9947701286025815 51
+-1784269826227 0.9947916018883407 52
+-1784269826227 0.9947942279642606 53
+-1784269826227 0.9948194447590706 54
+-1784269826228 0.9948394984261211 55
+-1784269826228 0.9948561227456049 56
+-1784269826228 0.9948797992068394 57
+-1784269826228 0.9949021241811629 58
+-1784269826228 0.994919356791679 59
+-1784269826228 0.9949408255910045 60
+-1784269826229 0.9949537638164577 61
+-1784269826229 0.994974775521823 62
+-1784269826229 0.9949968462987684 63
+-1784269826229 0.9950170624836696 64
+-1784269826229 0.9950371340114492 65
+-1784269826230 0.9950531836443928 66
+-1784269826230 0.9950780089086257 67
+-1784269826230 0.9950938068345277 68
+-1784269826230 0.9951066234913003 69
+-1784269826230 0.9951291861653095 70
+-1784269826231 0.9951549981137437 71
+-1784269826231 0.9951690908917799 72
+-1784269826231 0.995184899220444 73
+-1784269826231 0.9952064553492673 74
+-1784269826231 0.9952370819712613 75
+-1784269826232 0.995264395791207 76
+-1784269826232 0.9952754460029718 77
+-1784269826232 0.9952988329858129 78
+-1784269826232 0.9953133576976735 79
+-1784269826232 0.9953455475154026 80
+-1784269826233 0.995357955803069 81
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/params/cmd-sys.argv b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/params/cmd-sys.argv
+deleted file mode 100644
+index 446d208..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/params/cmd-sys.argv
++++ /dev/null
+@@ -1 +0,0 @@
+-quant/research/run_baseline.py
+\ No newline at end of file
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.runName b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.runName
+deleted file mode 100644
+index 25487e4..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.runName
++++ /dev/null
+@@ -1 +0,0 @@
+-mlflow_recorder
+\ No newline at end of file
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.git.commit b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.git.commit
+deleted file mode 100644
+index 00f3ea1..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.git.commit
++++ /dev/null
+@@ -1 +0,0 @@
+-af6d95f9105bea908a414cb747c3c42b41401122
+\ No newline at end of file
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.name b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.name
+deleted file mode 100644
+index 446d208..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.name
++++ /dev/null
+@@ -1 +0,0 @@
+-quant/research/run_baseline.py
+\ No newline at end of file
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.type b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.type
+deleted file mode 100644
+index 0c2c1fe..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.type
++++ /dev/null
+@@ -1 +0,0 @@
+-LOCAL
+\ No newline at end of file
+diff --git a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.user b/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.user
+deleted file mode 100644
+index cf448d3..0000000
+--- a/quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.user
++++ /dev/null
+@@ -1 +0,0 @@
+-abel
+\ No newline at end of file
+diff --git a/quant/webapp/quotes.py b/quant/webapp/quotes.py
+index f3d18cb..ff287af 100644
+--- a/quant/webapp/quotes.py
++++ b/quant/webapp/quotes.py
+@@ -1,11 +1,12 @@
+ """个股/指数行情数据接入。
+ 
+ 数据源优先级：
+-  1) 东方财富 push2his K线（含当日近实时）；
+-  2) 长历史请求失败时：qlib 历史 + 东财近期 K 线合并；
+-  3) 仍失败时：刷新 qlib 后纯本地日线（仅 EOD，可能缺当日）。
++  1) 腾讯 TXApi（gtimg fqkline / mkline，免费无 token，日/周/分钟 K）；
++  2) 东方财富 push2his K线（含当日近实时）；
++  3) 长历史请求失败时：qlib 历史 + 远端近期 K 线合并；
++  4) 仍失败时：刷新 qlib 后纯本地日线（仅 EOD，可能缺当日）。
+ 
+-只读、轻量：标准库 urllib + 进程内短缓存（仅缓存东财成功结果）。
++只读、轻量：标准库 urllib + 进程内短缓存（缓存腾讯/东财成功结果）。
+ """
+ 
+ from __future__ import annotations
+@@ -28,9 +29,14 @@ log = logging.getLogger(__name__)
+ EM_PATH = "/api/qt/stock/kline/get?secid={secid}&fields1=f1,f2,f3,f4,f5,f6" \
+           "&fields2=f51,f52,f53,f54,f55,f56,f57&klt={klt}&fqt={fqt}&end={end}&lmt={lmt}"
+ EM_HOSTS = ("https://push2his.eastmoney.com", "http://push2his.eastmoney.com")
++TX_FQ_URL = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={param}"
++TX_MK_URL = "https://ifzq.gtimg.cn/appstock/app/kline/mkline?param={param}"
+ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 quant-dashboard"
+ _EM_RETRY = 4
+ _EM_TIMEOUT = 12.0
++_TX_RETRY = 3
++_TX_TIMEOUT = 10.0
++_REMOTE_SOURCES = frozenset({"tencent", "eastmoney"})
+ 
+ INDICES = [
+     {"instrument": "SH000001", "name": "上证指数"},
+@@ -50,23 +56,170 @@ def secid(instrument: str) -> str:
+     return f"{market}.{code}"
+ 
+ 
+-def _em_request(url: str) -> dict | None:
++def _tx_symbol(instrument: str) -> str:
++    """SH600000 -> sh600000"""
++    return instrument[:2].lower() + instrument[2:]
++
++
++def _tx_period(klt: int) -> str | None:
++    """东财 klt → 腾讯 period；None 表示腾讯不支持、应走东财。"""
++    return {101: "day", 102: "week", 15: "m15", 60: "m60"}.get(klt)
++
++
++def _tx_adjust(fqt: int) -> str:
++    return {0: "", 1: "qfq", 2: "hfq"}.get(fqt, "qfq")
++
++
++def _tx_kline_key(period: str, adjust: str) -> str:
++    if period.startswith("m"):
++        return period
++    if adjust:
++        return f"{adjust}{period}"
++    return period
++
++
++def _tx_fmt_dt(raw: str) -> str:
++    """202608031130 → 2026-08-03 11:30；日线保持 YYYY-MM-DD。"""
++    if len(raw) == 10 and raw[4] == "-":
++        return raw
++    if len(raw) == 12 and raw.isdigit():
++        return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]} {raw[8:10]}:{raw[10:12]}"
++    return raw
++
++
++def _http_json(url: str, referer: str, retries: int, timeout: float) -> dict | None:
+     req = urllib.request.Request(url, headers={
+         "User-Agent": UA,
+-        "Referer": "https://quote.eastmoney.com/",
++        "Referer": referer,
+         "Connection": "close",
+         "Accept": "application/json",
+     })
+-    for attempt in range(_EM_RETRY):
++    for attempt in range(retries):
+         try:
+-            with urllib.request.urlopen(req, timeout=_EM_TIMEOUT) as r:
++            with urllib.request.urlopen(req, timeout=timeout) as r:
+                 return json.load(r)
+         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+-            log.debug("东财 K 线请求失败 attempt=%s url=%s err=%s", attempt + 1, url[:80], e)
+-            time.sleep(0.35 * (attempt + 1))
++            log.debug("HTTP JSON 失败 attempt=%s url=%s err=%s", attempt + 1, url[:96], e)
++            time.sleep(0.3 * (attempt + 1))
+     return None
+ 
+ 
++def _em_request(url: str) -> dict | None:
++    return _http_json(url, "https://quote.eastmoney.com/", _EM_RETRY, _EM_TIMEOUT)
++
++
++def _tx_name(block: dict, symbol: str, instrument: str) -> str:
++    qt = block.get("qt") or {}
++    if isinstance(qt, dict):
++        row = qt.get(symbol)
++        if isinstance(row, list) and len(row) > 1 and row[1]:
++            return str(row[1])
++    return instrument
++
++
++def _parse_tx_rows(rows: list) -> list[dict]:
++    out = []
++    for row in rows:
++        if not row or len(row) < 6:
++            continue
++        out.append({
++            "date": _tx_fmt_dt(str(row[0])),
++            "open": float(row[1]),
++            "close": float(row[2]),
++            "high": float(row[3]),
++            "low": float(row[4]),
++            "volume": float(row[5]),
++            "amount": float(row[6]) if len(row) > 6 and row[6] not in (None, "", {}) else 0.0,
++        })
++    return out
++
++
++def _parse_tx_fqkline(j: dict, instrument: str, klt: int, fqt: int) -> dict | None:
++    data = j.get("data") or {}
++    symbol = _tx_symbol(instrument)
++    block = data.get(symbol)
++    if not block:
++        return None
++    period = _tx_period(klt)
++    if not period or period.startswith("m"):
++        return None
++    key = _tx_kline_key(period, _tx_adjust(fqt))
++    rows = block.get(key) or block.get(period) or block.get(f"qfq{period}")
++    if not rows:
++        return None
++    klines = _parse_tx_rows(rows)
++    if not klines:
++        return None
++    return {"name": _tx_name(block, symbol, instrument), "source": "tencent", "klines": klines}
++
++
++def _parse_tx_mkline(j: dict, instrument: str, klt: int) -> dict | None:
++    data = j.get("data") or {}
++    symbol = _tx_symbol(instrument)
++    block = data.get(symbol)
++    if not block:
++        return None
++    period = _tx_period(klt)
++    if not period or not period.startswith("m"):
++        return None
++    rows = block.get(period)
++    if not rows:
++        return None
++    klines = _parse_tx_rows(rows)
++    if not klines:
++        return None
++    return {"name": _tx_name(block, symbol, instrument), "source": "tencent", "klines": klines}
++
++
++def _fetch_tx_once(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None:
++    period = _tx_period(klt)
++    if not period:
++        return None
++    symbol = _tx_symbol(instrument)
++    if period.startswith("m"):
++        param = f"{symbol},{period},,{lmt}"
++        url = TX_MK_URL.format(param=param)
++        j = _http_json(url, "https://gu.qq.com/", _TX_RETRY, _TX_TIMEOUT)
++        return _parse_tx_mkline(j, instrument, klt) if j else None
++    adjust = _tx_adjust(fqt)
++    param = f"{symbol},{period},,,{lmt},{adjust}"
++    j = _http_json(TX_FQ_URL.format(param=param), "https://gu.qq.com/", _TX_RETRY, _TX_TIMEOUT)
++    return _parse_tx_fqkline(j, instrument, klt, fqt) if j else None
++
++
++def _fetch_tx(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None:
++    """腾讯 K 线：先全量，失败则缩小窗口；日线仍失败则 qlib 历史 + 腾讯近期合并。"""
++    res = _fetch_tx_once(instrument, klt, lmt, fqt)
++    if res:
++        return res
++
++    for smaller in (min(lmt, 60), min(lmt, 15), 5):
++        if smaller >= lmt:
++            continue
++        res = _fetch_tx_once(instrument, klt, smaller, fqt)
++        if res and len(res["klines"]) >= min(smaller, 5):
++            log.info("%s 腾讯全量 lmt=%s 失败，降级 lmt=%s 成功", instrument, lmt, smaller)
++            return res
++
++    if klt != 101:
++        return None
++
++    recent = _fetch_tx_once(instrument, klt, 10, fqt)
++    if not recent:
++        return None
++
++    C.reset_qlib()
++    ql = _fetch_qlib(instrument, lmt)
++    if ql and ql["klines"]:
++        merged = _merge_klines(ql["klines"], recent["klines"])
++        log.info("%s 腾讯全量失败，已用 qlib 历史 + 腾讯近期(%d根) 合并",
++                 instrument, len(recent["klines"]))
++        return {"name": recent["name"], "source": "tencent", "klines": merged[-lmt:]}
++
++    log.info("%s 腾讯全量失败，仅返回近期 %d 根 K 线", instrument, len(recent["klines"]))
++    return recent
++
++
+ def _parse_em_klines(j: dict, instrument: str) -> dict | None:
+     data = j.get("data")
+     if not data or not data.get("klines"):
+@@ -95,7 +248,7 @@ def _fetch_em_once(instrument: str, klt: int, lmt: int, fqt: int) -> dict | None
+ 
+ 
+ def _merge_klines(hist: list[dict], recent: list[dict]) -> list[dict]:
+-    """历史 + 近期合并，重叠日期以 recent（东财）为准。"""
++    """历史 + 近期合并，重叠日期以 recent（远端）为准。"""
+     if not hist:
+         return recent
+     if not recent:
+@@ -170,15 +323,17 @@ def quote(instrument: str, klt: int = 101, lmt: int = 120, fqt: int = 1) -> dict
+     key = f"{instrument}:{klt}:{lmt}:{fqt}"
+     now = time.time()
+     cached = _cache.get(key)
+-    if cached and now - cached[0] < _TTL and cached[1].get("source") == "eastmoney":
++    if cached and now - cached[0] < _TTL and cached[1].get("source") in _REMOTE_SOURCES:
+         return cached[1]
+ 
+-    res = _fetch_em(instrument, klt, lmt, fqt) or _fetch_qlib(instrument, lmt)
++    res = (_fetch_tx(instrument, klt, lmt, fqt)
++           or _fetch_em(instrument, klt, lmt, fqt)
++           or _fetch_qlib(instrument, lmt))
+     if not res:
+         out = {"instrument": instrument, "ok": False, "klines": []}
+         return out
+ 
+-    if res["source"] != "eastmoney":
++    if res["source"] not in _REMOTE_SOURCES:
+         log.warning("%s 行情回退至 %s（数据可能不是最新）", instrument, res["source"])
+ 
+     kl = res["klines"]
+@@ -192,7 +347,7 @@ def quote(instrument: str, klt: int = 101, lmt: int = 120, fqt: int = 1) -> dict
+         "low": round(last["low"], 3), "chg_pct": round(chg, 2),
+         "klines": kl,
+     }
+-    if out["source"] == "eastmoney":
++    if out["source"] in _REMOTE_SOURCES:
+         _cache[key] = (now, out)
+     return out
+ 
+diff --git a/quant/webapp/server.py b/quant/webapp/server.py
+index f79a963..7993c07 100644
+--- a/quant/webapp/server.py
++++ b/quant/webapp/server.py
+@@ -527,7 +527,7 @@ def api_alerts():
+ 
+ @app.get("/api/quote/{instrument}")
+ def api_quote(instrument: str, klt: int = 101, n: int = 120, fqt: int = 1):
+-    """个股/指数行情：klt=101日线/102周线/1分钟等；优先东财(当日)，回退本地 qlib(EOD)。"""
++    """个股/指数行情：klt=101日线/102周线/1分钟等；优先腾讯 TXApi，其次东财，回退本地 qlib(EOD)。"""
+     if not instrument[:2].isalpha() or not instrument[2:].isdigit():
+         raise HTTPException(400, "标的格式应为 SH600000 / SZ000001")
+     return Q.quote(instrument.upper(), klt=klt, lmt=min(max(n, 5), 500), fqt=fqt)

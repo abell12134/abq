@@ -55,9 +55,9 @@ discovered:
       max_corr: 0.2538
       corr_with: seed_mom20
       incr_ic_gain: 0.00212
-    reject_reason: 过全部自动关卡 + 对组合有样本外增量，进入纸面跟踪
+    reject_reason: 实验回退：live 重训未过 IR 门禁，保持 paper_tracking
     created_iter: 1
-    updated_at: 2026-06-15 13:53
+    updated_at: 2026-08-03 11:42
   intraday_autocorr:
     expr: Corr($close/$open-1, Ref($close/$open-1, 1), 10)
     hypothesis: 日内收益的一阶自相关衡量资金隔日推动的持续性，正相关反映短线趋势跟随，负相关反映日内反转，可用于区分日内主导型动量或反转特征。
@@ -152,9 +152,9 @@ discovered:
       max_corr: 0.5665
       corr_with: pv_corr
       incr_ic_gain: 0.00312
-    reject_reason: 过全部自动关卡 + 对组合有样本外增量，进入纸面跟踪
+    reject_reason: 实验回退：live 重训未过 IR 门禁，保持 paper_tracking
     created_iter: 2
-    updated_at: 2026-06-15 13:56
+    updated_at: 2026-08-03 11:42
   breakout_intensity:
     expr: Mean(Greater($close, Ref(Max($high,20),1)), 5)
     hypothesis: 近5日创新高频率反映突破阻力的强度与持续性，频率越高多头信念越强，具有趋势强化效应。

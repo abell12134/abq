@@ -1,0 +1,6 @@
+artifact_location: file:./mlruns/196931597191053223
+creation_time: 1785727208086
+experiment_id: '196931597191053223'
+last_update_time: 1785727208086
+lifecycle_stage: active
+name: baseline_alpha158_lgbm

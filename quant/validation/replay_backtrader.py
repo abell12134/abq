@@ -64,25 +64,39 @@ def load_panel(instruments: list[str], start: str, end: str):
 
 
 def to_feed_frames(panel: pd.DataFrame, calendar: list) -> dict[str, pd.DataFrame]:
-    """把面板拆成每只股票的日历对齐 DataFrame；停牌日 volume=0、价格前向填充。"""
+    """把面板拆成每只股票的日历对齐 DataFrame；停牌日 volume=0、价格前向填充。
+
+    重要：每只股票必须保留**完整** calendar 长度。若 dropna 丢掉上市前日期，
+    backtrader 会对所有 feed 取日期交集——CSI500 成分轮动下 730 只并集的交集
+    可能只剩 ~100 个交易日，超额指标会严重失真（2026-08 事故：624→120 日）。
+    上市前/退市后：价格用最近有效值填充，volume=0（_tradable 会拦截）。
+    """
     cal_idx = pd.DatetimeIndex(calendar)
     frames = {}
     for inst, g in panel.groupby(level="instrument"):
         d = g.droplevel("instrument").reindex(cal_idx)
-        # 停牌（缺失）日：价格用前收平推、volume=0（策略据此判定不可交易）
         d["volume"] = d["volume"].fillna(0.0)
-        d[["open", "high", "low", "close"]] = (
-            d[["open", "high", "low", "close"]].ffill())
-        d = d.dropna(subset=["close"])  # 上市前的前导缺失丢弃
-        if len(d):
+        # 停牌缺口：ffill；上市前前导缺失：bfill（仅占位，volume 仍为 0）
+        px = d[["open", "high", "low", "close"]].ffill().bfill()
+        d[["open", "high", "low", "close"]] = px
+        if d["close"].notna().any():
             frames[inst] = d
+    # 安全检查：所有 feed 长度必须一致，否则 cerebro 会静默缩短区间
+    lengths = {k: len(v) for k, v in frames.items()}
+    if lengths and len(set(lengths.values())) > 1:
+        raise RuntimeError(
+            f"feed 长度不一致（会导致 backtrader 日期交集缩短）: "
+            f"min={min(lengths.values())} max={max(lengths.values())} "
+            f"n_feeds={len(lengths)}"
+        )
     return frames
 
 
 # --------------------------------------------------------------------------- #
-# A 股费用模型：佣金万2.5(最低5) + 卖出印花税 0.05%
+# 费用模型
 # --------------------------------------------------------------------------- #
 class AStockComm(bt.CommInfoBase):
+    """实盘近似：佣金万2.5(最低5) + 卖出印花税 0.05%（另可叠加 slippage）。"""
     params = (
         ("commission", 0.00025),
         ("stamp_duty", 0.0005),
@@ -98,6 +112,21 @@ class AStockComm(bt.CommInfoBase):
         if size < 0:  # 卖出加印花税
             comm += value * self.p.stamp_duty
         return comm
+
+
+class QlibFlatComm(bt.CommInfoBase):
+    """与 workflow_baseline.yaml exchange_kwargs 对齐：买 open_cost / 卖 close_cost。"""
+    params = (
+        ("open_cost", 0.0015),
+        ("close_cost", 0.002),
+        ("stocklike", True),
+        ("commtype", bt.CommInfoBase.COMM_PERC),
+        ("percabs", True),
+    )
+
+    def _getcommission(self, size, price, pseudoexec):
+        value = abs(size) * price
+        return value * (self.p.open_cost if size > 0 else self.p.close_cost)
 
 
 # --------------------------------------------------------------------------- #
@@ -212,11 +241,18 @@ class TopkReplay(bt.Strategy):
 
 
 def run_replay(frames, calendar, sig_by_day, sig_days, slippage,
-               start_cash=1_000_000, veto_set=None):
+               start_cash=1_000_000, veto_set=None, cost_mode: str = "astock",
+               invest_ratio: float | None = None):
+    """cost_mode: 'astock' 实盘近似；'qlib' 对齐研究层 open_cost/close_cost（用于 ≤3pct 门禁）。"""
     cerebro = bt.Cerebro(cheat_on_open=True, stdstats=False)
     cerebro.broker.setcash(start_cash)
-    cerebro.broker.addcommissioninfo(AStockComm())
-    if slippage > 0:
+    if cost_mode == "qlib":
+        cerebro.broker.addcommissioninfo(QlibFlatComm())
+        ratio = 1.0 if invest_ratio is None else invest_ratio
+    else:
+        cerebro.broker.addcommissioninfo(AStockComm())
+        ratio = 0.98 if invest_ratio is None else invest_ratio
+    if slippage and slippage > 0:
         cerebro.broker.set_slippage_perc(
             slippage, slip_open=True, slip_match=True, slip_out=False)
     for inst, df in frames.items():
@@ -225,7 +261,7 @@ def run_replay(frames, calendar, sig_by_day, sig_days, slippage,
     cerebro.addstrategy(TopkReplay, sig_by_day=sig_by_day, sig_days=sig_days,
                         topk=CFG["strategy"]["topk"], n_drop=CFG["strategy"]["n_drop"],
                         hold_thresh=CFG["strategy"].get("hold_thresh", 10),
-                        veto_set=veto_set)
+                        invest_ratio=ratio, veto_set=veto_set)
     strat = cerebro.run()[0]
     nav = pd.Series({d: v for d, v in strat.nav}).sort_index()
     return nav, strat.n_limit_block, strat.n_susp_block, strat.n_ump_block
@@ -235,17 +271,62 @@ def run_replay(frames, calendar, sig_by_day, sig_days, slippage,
 # 指标：与 qlib excess_return_with_cost 口径对齐（日超额 mean*252、IR=mean/std*sqrt252）
 # --------------------------------------------------------------------------- #
 def excess_metrics(nav: pd.Series, bench_close: pd.Series) -> dict:
-    r_p = nav.pct_change().dropna()
-    r_b = bench_close.reindex(nav.index).pct_change().reindex(r_p.index)
-    ex = (r_p - r_b).dropna()
-    ann = ex.mean() * TRADING_DAYS
-    ir = ex.mean() / ex.std() * np.sqrt(TRADING_DAYS) if ex.std() > 0 else float("nan")
-    cum = (1 + r_p).prod() - 1
-    cum_b = (1 + r_b.reindex(r_p.index)).prod() - 1
-    # 超额最大回撤（累计超额净值口径）
+    """Compute excess metrics with strict date alignment.
+
+    Critical: do NOT use the default pct_change(fill_method='pad') on a reindexed
+    bench series — missing days become 0% bench return and inflate excess.
+    Also require an inner join so port/bench returns are same-day paired.
+    """
+    def _norm_idx(s: pd.Series) -> pd.Series:
+        idx = pd.to_datetime(s.index)
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_convert(None)
+        s = s.copy()
+        s.index = idx.normalize()
+        return s.groupby(s.index).last().sort_index()
+
+    nav = _norm_idx(nav)
+    bench_close = _norm_idx(bench_close)
+
+    # common trading days only
+    common = nav.index.intersection(bench_close.index)
+    if len(common) < 2:
+        return dict(ann_excess=float("nan"), ir=float("nan"), total_ret=float("nan"),
+                    bench_ret=float("nan"), ex_mdd=float("nan"),
+                    n_days=0, warn="nav/bench 无共同交易日")
+    nav = nav.reindex(common)
+    bench_close = bench_close.reindex(common)
+
+    # pandas≥2.2 默认 fill_method 已弃用；显式 None 避免把缺失日当成 0 收益
+    try:
+        r_p = nav.pct_change(fill_method=None)
+        r_b = bench_close.pct_change(fill_method=None)
+    except TypeError:
+        r_p = nav.pct_change()
+        r_b = bench_close.pct_change()
+    df = pd.DataFrame({"r_p": r_p, "r_b": r_b}).dropna()
+    if df.empty:
+        return dict(ann_excess=float("nan"), ir=float("nan"), total_ret=float("nan"),
+                    bench_ret=float("nan"), ex_mdd=float("nan"),
+                    n_days=0, warn="收益序列为空")
+
+    ex = df["r_p"] - df["r_b"]
+    ann = float(ex.mean() * TRADING_DAYS)
+    ir = float(ex.mean() / ex.std() * np.sqrt(TRADING_DAYS)) if ex.std() > 0 else float("nan")
+    cum = float((1 + df["r_p"]).prod() - 1)
+    cum_b = float((1 + df["r_b"]).prod() - 1)
+    # 几何超额（累计相对财富），用于与算术年化交叉校验
+    rel = float((1 + df["r_p"]).prod() / (1 + df["r_b"]).prod() - 1)
     ex_nav = (1 + ex).cumprod()
-    mdd = (ex_nav / ex_nav.cummax() - 1).min()
-    return dict(ann_excess=ann, ir=ir, total_ret=cum, bench_ret=cum_b, ex_mdd=mdd)
+    mdd = float((ex_nav / ex_nav.cummax() - 1).min())
+
+    warn = ""
+    # 算术年化超额与累计相对财富符号严重背离 → 指标不可信
+    if np.isfinite(ann) and abs(ann) > 0.05 and rel * ann < 0:
+        warn = (f"算术年化超额 {ann:.2%} 与累计相对财富 {rel:.2%} 符号相反，"
+                "请检查 nav/bench 对齐")
+    return dict(ann_excess=ann, ir=ir, total_ret=cum, bench_ret=cum_b, ex_mdd=mdd,
+                rel_wealth=rel, n_days=int(len(df)), warn=warn)
 
 
 def _read_metric(run_dir: Path, name: str):
@@ -286,7 +367,13 @@ def qlib_reference() -> dict:
 def render_report(rows: list[dict], qref: dict, period: tuple, blocks: dict) -> str:
     s, e = period
     def f(x, p="{:.2%}"):
-        return p.format(x) if x is not None else "N/A"
+        return p.format(x) if x is not None and x == x else "N/A"
+
+    def row_label(r):
+        if r.get("cost_mode") == "qlib":
+            return "qlib口径(买0.15%/卖0.20%,无滑点)"
+        return f"astock+滑点{r['slippage']:.1%}"
+
     lines = [
         "# 阶段2 验证报告：backtrader 独立复演 + 滑点敏感性",
         "",
@@ -297,33 +384,65 @@ def render_report(rows: list[dict], qref: dict, period: tuple, blocks: dict) -> 
         f"- qlib 基线参考(recorder {qref['rec_id']}): "
         f"年化超额 {f(qref['ann_excess'])}, IR {f(qref['ir'], '{:.4f}')}",
         "",
-        "## 滑点敏感性（相对基准 SH000905 的超额）",
-        "| 滑点 | 年化超额 | 超额IR | 超额最大回撤 | 与qlib年化差异 |",
-        "|---|---|---|---|---|",
+        "## 结果表（相对基准 SH000905 的超额）",
+        "| 口径 | 年化超额(算术) | 累计相对财富 | 组合总收益 | 基准总收益 | 超额IR | 超额最大回撤 | 与qlib年化差异 |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         diff = (r["ann_excess"] - qref["ann_excess"]
                 if qref["ann_excess"] is not None else None)
         lines.append(
-            f"| {r['slippage']:.1%} | {f(r['ann_excess'])} | {r['ir']:.4f} | "
-            f"{f(r['ex_mdd'])} | {f(diff, '{:+.2%}') if diff is not None else 'N/A'} |")
-    base = next((r for r in rows if abs(r["slippage"] - 0.001) < 1e-9), rows[0])
-    s02 = next((r for r in rows if abs(r["slippage"] - 0.002) < 1e-9), None)
+            f"| {row_label(r)} | {f(r['ann_excess'])} | "
+            f"{f(r.get('rel_wealth'))} | {f(r['total_ret'])} | {f(r.get('bench_ret'))} | "
+            f"{r['ir']:.4f} | {f(r['ex_mdd'])} | "
+            f"{f(diff, '{:+.2%}') if diff is not None else 'N/A'} |")
+
+    # 门禁基准：优先 qlib 成本口径行；否则回退 0.1% 滑点行
+    gate = next((r for r in rows if r.get("cost_mode") == "qlib"), None)
+    base = gate or next((r for r in rows if abs(r.get("slippage", -1) - 0.001) < 1e-9),
+                        rows[0])
+    s02 = next((r for r in rows if r.get("cost_mode") != "qlib"
+                and abs(r.get("slippage", -1) - 0.002) < 1e-9), None)
     diff_base = (base["ann_excess"] - qref["ann_excess"]
                  if qref["ann_excess"] is not None else None)
+    warns = [r.get("warn") for r in rows if r.get("warn")]
+    pass_diff = diff_base is not None and abs(diff_base) <= 0.03
+    pass_s02 = s02 is not None and s02["ann_excess"] >= 0.05
     lines += [
         "",
         f"- 涨跌停/停牌拦截下单次数: 涨跌停 {blocks['limit']}，停牌 {blocks['susp']}",
+        f"- 对齐交易日数: {base.get('n_days', 'N/A')}",
+        f"- ≤3pct 门禁对照行: {row_label(base)}",
+    ]
+    if warns:
+        lines += ["", "## ⚠ 指标一致性告警"] + [f"- {w}" for w in warns]
+    lines += [
         "",
         "## 验收判定（阶段2门槛）",
-        f"- 复演与 qlib 年化超额差异 ≤3pct: "
+        f"- 复演与 qlib 年化超额差异 ≤3pct（成本口径对齐后）: "
         + (f"{f(diff_base, '{:+.2%}')} → "
-           + ("**通过**" if diff_base is not None and abs(diff_base) <= 0.03
-              else "**待复核**") if diff_base is not None else "qlib 参考缺失"),
-        f"- 0.2% 滑点下年化超额 ≥5%: "
+           + ("**通过**" if pass_diff else "**待复核**")
+           if diff_base is not None else "qlib 参考缺失"),
+        f"- 0.2% 滑点(astock)下年化超额 ≥5%（稳健性）: "
         + (f"{f(s02['ann_excess'])} → "
-           + ("**通过**" if s02["ann_excess"] >= 0.05 else "**未通过**")
+           + ("**通过**" if pass_s02 else "**未通过**")
            if s02 else "N/A"),
+        f"- 累计相对财富与算术超额同号: "
+        + ("**通过**" if not warns else "**未通过（见告警）**"),
+        "",
+        "## 风险解读（真钱决策）",
+        f"- 研究层(Qlib) 年化超额 {f(qref['ann_excess'])}；"
+        f"事件驱动复演(qlib口径) {f(base['ann_excess'])}，"
+        f"累计相对基准财富 {f(base.get('rel_wealth'))}。",
+        f"- 实盘摩擦更接近 astock+滑点：0.2% 滑点下年化超额 "
+        f"{f(s02['ann_excess']) if s02 else 'N/A'}，"
+        f"超额回撤 {f(s02['ex_mdd']) if s02 else 'N/A'}——"
+        "真钱应以该行作下限预期，而非研究层数字。",
+        f"- 阶段2 双门槛: "
+        + ("**同时满足** → 研究候选可进入模拟线/小仓试水；"
+           "真钱预期请按 astock+0.2% 滑点（年化超额与回撤）做下限，勿按 Qlib 纸面数字承诺客户。"
+           if (pass_diff and pass_s02)
+           else "**未同时满足** → 禁止扩仓/客户真钱主策略。"),
     ]
     return "\n".join(lines)
 
@@ -373,9 +492,11 @@ def render_ab(no_ump: dict, ump: dict, qref: dict, period: tuple, slippage: floa
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--start", default="2024-01-02")
-    p.add_argument("--end", default="2026-06-11")
+    p.add_argument("--end", default="2026-07-31")
     p.add_argument("--slippage", type=float, default=None,
-                   help="只跑单一滑点；缺省则跑 0.001/0.002/0.003 敏感性")
+                   help="只跑单一滑点；缺省则：qlib口径对齐 + astock 0.1/0.2/0.3% 敏感性")
+    p.add_argument("--cost-mode", choices=["astock", "qlib"], default=None,
+                   help="费用模型；缺省自动：先 qlib 对齐门禁，再 astock 稳健性")
     p.add_argument("--ump", action="store_true", help="在复演中启用 UMP 裁判否决")
     p.add_argument("--compare-ump", action="store_true",
                    help="同区间同滑点跑 有/无 UMP 的 A/B 对比（默认滑点 0.1%）")
@@ -388,7 +509,12 @@ def main() -> int:
     print(f"[1/3] 加载面板：{len(uni)} 只标的 {args.start}~{args.end}")
     panel, calendar = load_panel(uni, args.start, args.end)
     frames = to_feed_frames(panel, calendar)
-    print(f"      可用 feed：{len(frames)} 只；交易日 {len(calendar)} 天")
+    feed_len = len(next(iter(frames.values()))) if frames else 0
+    print(f"      可用 feed：{len(frames)} 只；交易日 {len(calendar)} 天；"
+          f"每 feed 长度 {feed_len}")
+    if feed_len != len(calendar):
+        print(f"[WARN] feed 长度 {feed_len} ≠ 日历 {len(calendar)}，"
+              "cerebro 可能缩短回测区间")
 
     from qlib.data import D
     bench = D.features(["SH000905"], ["$close"], start_time=args.start,
@@ -420,18 +546,36 @@ def main() -> int:
         print("\n" + report + f"\n\n[OK] 报告已写入 {out}")
         return 0
 
-    slippages = [args.slippage] if args.slippage is not None else [0.001, 0.002, 0.003]
+    # 运行计划：默认 = qlib 成本对齐（≤3pct 门禁）+ astock 滑点敏感性（≥5% 稳健性）
+    jobs: list[tuple[str, float]] = []
+    if args.cost_mode == "qlib":
+        jobs = [("qlib", 0.0)]
+    elif args.cost_mode == "astock":
+        slips = [args.slippage] if args.slippage is not None else [0.001, 0.002, 0.003]
+        jobs = [("astock", sl) for sl in slips]
+    else:
+        jobs = [("qlib", 0.0)]
+        slips = [args.slippage] if args.slippage is not None else [0.001, 0.002, 0.003]
+        jobs += [("astock", sl) for sl in slips]
+
     rows, blocks = [], {"limit": 0, "susp": 0}
-    for sl in slippages:
-        print(f"[2/3] 复演 slippage={sl:.1%}{' +UMP' if veto is not None else ''}")
-        nav, nlim, nsusp, nump = run_replay(frames, calendar, sig_by_day, sig_days, sl,
-                                            veto_set=veto)
+    for mode, sl in jobs:
+        tag = f"cost={mode} slip={sl:.1%}"
+        print(f"[2/3] 复演 {tag}{' +UMP' if veto is not None else ''}")
+        nav, nlim, nsusp, nump = run_replay(
+            frames, calendar, sig_by_day, sig_days, sl,
+            veto_set=veto, cost_mode=mode)
         m = excess_metrics(nav, bench)
         m["slippage"] = sl
+        m["cost_mode"] = mode
         rows.append(m)
         blocks = {"limit": nlim, "susp": nsusp}
         print(f"      年化超额 {m['ann_excess']:.2%}  IR {m['ir']:.3f}  "
-              f"超额MDD {m['ex_mdd']:.2%}  总收益 {m['total_ret']:.2%}")
+              f"超额MDD {m['ex_mdd']:.2%}  组合 {m['total_ret']:.2%}  "
+              f"基准 {m.get('bench_ret', float('nan')):.2%}  "
+              f"相对财富 {m.get('rel_wealth', float('nan')):.2%}")
+        if m.get("warn"):
+            print(f"      [WARN] {m['warn']}")
 
     print("[3/3] 出报告")
     report = render_report(rows, qref, (args.start, args.end), blocks)

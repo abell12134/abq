@@ -1,0 +1,57 @@
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_cached.txt
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_diff.txt
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/code_status.txt
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/label.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/params.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicator_analysis_1day.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/indicators_normal_1day_obj.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/port_analysis_1day.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/positions_normal_1day.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/portfolio_analysis/report_normal_1day.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/pred.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ic.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/artifacts/sig_analysis/ric.pkl
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/meta.yaml
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.annualized_return
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.information_ratio
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.max_drawdown
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.mean
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_with_cost.std
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.annualized_return
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.information_ratio
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.max_drawdown
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.mean
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.excess_return_without_cost.std
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.ffr
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pa
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/1day.pos
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/IC
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/ICIR
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank IC
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/Rank ICIR
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.train
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/metrics/l2.valid
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/params/cmd-sys.argv
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.runName
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.git.commit
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.name
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.source.type
+	deleted:    quant/research/mlruns/486167064345159889/07ea276350ec4ee3bd70daddbe612f6e/tags/mlflow.user
+	modified:   quant/webapp/quotes.py
+	modified:   quant/webapp/server.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	Users/
+	mlruns/
+	quant/research/workflow_baseline_csi500_20260716.yaml
+	quant/research/workflow_baseline_planC.yaml
+
+no changes added to commit (use "git add" and/or "git commit -a")
