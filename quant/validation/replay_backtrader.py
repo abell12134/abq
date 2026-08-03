@@ -377,6 +377,12 @@ def render_report(rows: list[dict], qref: dict, period: tuple, blocks: dict) -> 
     lines = [
         "# 阶段2 验证报告：backtrader 独立复演 + 滑点敏感性",
         "",
+        "> ## ⚠ 风险声明（必读）",
+        ">",
+        "> **本报告为量化研究 / 学习用途，不构成任何投资建议。**  ",
+        "> **股市有风险，谨慎操作；据此交易的一切后果由使用者自行承担。**  ",
+        "> 历史回测、模拟与纸面表现均 **不代表** 未来收益。",
+        "",
         f"- 生成时间: {dt.datetime.now():%Y-%m-%d %H:%M}",
         f"- 复演区间: {s} ~ {e}（次日开盘成交，T+1/涨跌停/停牌/整手/费税全建模）",
         f"- 策略: TopK{CFG['strategy']['topk']} / n_drop{CFG['strategy']['n_drop']} / "
@@ -472,6 +478,12 @@ def render_ab(no_ump: dict, ump: dict, qref: dict, period: tuple, slippage: floa
     d_mdd = ump["ex_mdd"] - no_ump["ex_mdd"]
     return "\n".join([
         "# 阶段2 UMP 接入复演 A/B 报告（同区间、同滑点）",
+        "",
+        "> ## ⚠ 风险声明（必读）",
+        ">",
+        "> **本报告为量化研究 / 学习用途，不构成任何投资建议。**  ",
+        "> **股市有风险，谨慎操作；据此交易的一切后果由使用者自行承担。**  ",
+        "> 历史回测、模拟与纸面表现均 **不代表** 未来收益。",
         "",
         f"- 生成时间: {dt.datetime.now():%Y-%m-%d %H:%M}",
         f"- 区间: {s} ~ {e}（UMP 样本外应用区间）；滑点: {slippage:.1%}",

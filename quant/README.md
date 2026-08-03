@@ -1,10 +1,16 @@
 # quant — A 股 AI 量化交易系统（自有代码）
 
+> ## ⚠ 风险声明（必读）
+>
+> **本目录代码为量化研究 / 学习项目，不构成任何投资建议。**  
+> **股市有风险，谨慎操作；据此交易的一切后果由使用者自行承担。**  
+> 历史回测、模拟与纸面表现均 **不代表** 未来收益。
+
 总体设计见仓库根目录《设计实现方案.md》。本目录是方案中的"自有系统"部分，
 上游开源项目（qlib / rd-agent / backtrader / vnpy / abu）只读引用，不直接修改。
 
 > **流程图**：根目录 [README.md](../README.md#流程图) 与 [docs/FLOWCHARTS.md](../docs/FLOWCHARTS.md)  
-> （含 ASCII 图，Cursor 里可直接看；GitHub 上 Mermaid 可渲染成图形）
+> （含 ASCII 图；GitHub 上 Mermaid 可渲染成图形）
 
 ## 当前进度
 

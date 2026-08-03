@@ -142,6 +142,12 @@ def render_report(m: dict, rec_id: str, cfg: dict) -> str:
 
     return f"""# 基线回测报告（{title}）
 
+> ## ⚠ 风险声明（必读）
+>
+> **本报告为量化研究 / 学习用途，不构成任何投资建议。**  
+> **股市有风险，谨慎操作；据此交易的一切后果由使用者自行承担。**  
+> 历史回测、模拟与纸面表现均 **不代表** 未来收益。
+
 - 生成时间: {dt.datetime.now():%Y-%m-%d %H:%M}
 - Recorder ID: {rec_id}（MLflow 可复现）
 - 基准: {bench}

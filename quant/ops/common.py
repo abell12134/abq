@@ -15,6 +15,15 @@ import yaml
 QUANT = Path(__file__).resolve().parents[1]
 CFG = yaml.safe_load((QUANT / "configs" / "global.yaml").read_text())
 
+# 醒目风险声明：写入各类 Markdown 报告标题下方（研究用途，非投资建议）
+RISK_DISCLAIMER_MD = (
+    "> ## ⚠ 风险声明（必读）\n"
+    ">\n"
+    "> **本仓库为量化研究 / 学习项目，不构成任何投资建议。**  \n"
+    "> **股市有风险，谨慎操作；据此交易的一切后果由使用者自行承担。**  \n"
+    "> 历史回测、模拟与纸面表现均 **不代表** 未来收益。\n"
+)
+
 DATA = QUANT / "data"
 LOG_DIR = DATA / "logs"
 NAV_DIR = DATA / "nav"
