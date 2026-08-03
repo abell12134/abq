@@ -15,11 +15,11 @@
 | 亮点 | 说明 |
 |------|------|
 | **全链路分层架构** | L0 数据 → L2 Qlib 研究 → L3 Backtrader 验证 → L4 执行 → L5 运维看板；层间仅通过 **CSV 数据契约** 通信，可独立替换升级 |
-| **「换手率是生命线」** | 实证：毛超额 IR 0.6~0.8，高换手净 IR 一度 **−0.17**；引入 **5 日标签 + hold_thresh=10** 后净 IR **1.04**、年化净超额 **+9.3%** |
-| **双引擎交叉验证** | Qlib 向量化回测 + Backtrader 事件驱动复演（T+1 / 涨跌停 / 停牌 / 整手 / 费税）；复演与 Qlib 年化差异 **≤3pct** 才放行 |
+| **「换手率是生命线」** | 实证：毛超额 IR 0.6~0.8，高换手净 IR 一度 **−0.17**；引入 **5 日标签 + hold_thresh=10** 后净 IR 约 **1.04**；2026-08 **Plan C** 超参后净 IR **1.05**、年化净超额约 **+11.2%** |
+| **双引擎交叉验证** | Qlib 向量化回测 + Backtrader 事件驱动复演（T+1 / 涨跌停 / 停牌 / 整手 / 费税）；复演与 Qlib 年化差异 **≤3pct** 才放行（Plan C：−2.70pct / 0.2%滑点超额 7.86%） |
 | **UMP 信号二次否决** | 借鉴 abu「裁判」思想自研 LightGBM 拦截器，样本外 A/B 超额 IR **0.21 → 0.48**，无 abu 运行时依赖 |
 | **LLM 因子挖掘 + 五道准入** | 自研轻量 RD-Agent 式闭环；15 个 LLM 候选仅 **2 个** 进入纸面跟踪，漏斗有效拦截 AI 过拟合 |
-| **研究线 + 实盘线双线并行** | 10 万模拟线自动成交 vs 1 万实盘线人工回填；同一信号源，隔离账本，可量化「执行偏差」 |
+| **研究线 + 实盘线双线并行** | 10 万模拟线自动成交 vs 1.2 万实盘线人工回填；同一信号源，隔离账本，可量化「执行偏差」；TA 仅影子线，未过门禁不上 live |
 | **路线一友好落地** | 无需 miniQMT 即可起步：系统出单、同花顺手动下单、收盘回填成交；看板 + 内置定时一键常驻 |
 | **可复现** | MLflow / Qlib Recorder 记录实验；YAML 配置入仓；跨层 CSV 经 `schemas.py` 校验 |
 
@@ -148,7 +148,7 @@ python3 -m venv quant-venv
 quant-venv/bin/pip install -r quant/requirements.txt
 ```
 
-**要求**：Python 3.10 · **全 A 重训建议内存 ≥16GB** · 磁盘 ≥5GB
+**要求**：Python 3.10 · 生产 csi500 重训内存 ≥3GB（已配 swap）；**全 A 实验**建议 ≥16GB · 磁盘 ≥5GB
 
 ### 2. 行情数据（已打进仓库分卷）
 
@@ -158,19 +158,21 @@ quant-venv/bin/python quant/ops/ensure_qlib_data.py
 # run_baseline / predict_daily 启动时也会自动解压
 ```
 
-### 3. 跑通研究基线（全 A）
+### 3. 跑通研究基线（中证500 / Plan C）
 
 ```bash
 cd quant
 ../quant-venv/bin/python research/run_baseline.py
 # 产出：data/reports/baseline_*.md · MLflow · data/signals/latest_pred.csv
+# IR < 0.8 时不会晋升：不写 latest_pred，recorder 隔离到 research/mlruns_rejected/
 ```
 
-**当前基线口径**：
+**当前基线口径（生产）**：
 
-- 标的池：**全 A（`all`）** · 基准：中证全指 SH000985 · 模型：Alpha158 + LightGBM  
-- 组合：TopK50 / n_drop3 / **hold_thresh=10** · 标签：**5 日开盘价收益**  
-- 旧中证500配置：`research/workflow_baseline_csi500.yaml`
+- 标的池：**中证500（`csi500`）** · 基准：中证500 SH000905 · 模型：Alpha158 + **LGBM Plan C**
+- 组合：TopK50 / n_drop3 / **hold_thresh=10** · 标签：**5 日开盘价收益**
+- 线上 recorder：`826b98ae`（样本外 IR **1.0459**）
+- 全 A 实验（未过关）：`research/workflow_baseline_all.yaml`；旧/对照：`workflow_baseline_csi500.yaml`、`workflow_baseline_planC.yaml`
 
 ### 4. 独立复演验证（阶段 2）
 
@@ -202,7 +204,9 @@ bash webapp/serve.sh start 8000
 | 账户 | 用途 | 模式 |
 |------|------|------|
 | `research_sim_100k` | 10 万研究模拟线 | 系统自动按次日开盘价模拟成交 |
-| `live_manual_10k` | 1 万实盘线 | 试运行 `simulated` / 正式 `manual` + 人工回填 fills |
+| `live_manual_10k` | 1.2 万实盘线 | `manual` + 人工回填 fills；**仅 LGBM+UMP，不开 TA** |
+| `shadow_ctrl_sim` | TA 对照影子线 | 与 live 同参，无 TA |
+| `shadow_ta_sim` | TA 否决影子线 | `use_ta_veto: true`；门禁未 PASS 前不上 live |
 
 ---
 

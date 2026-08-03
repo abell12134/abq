@@ -8,12 +8,12 @@
 
 ## 当前进度
 
-- [x] 阶段 1：数据底座 + 研究基线（净超额 IR 1.04，过验收门槛 0.8）
-- [x] 阶段 2：backtrader 验证闭环（复演 vs qlib 年化差异 -2.3pct≤3pct；0.2%滑点超额 5.65%≥5%，双门槛通过）
+- [x] 阶段 1：数据底座 + 研究基线（**Plan C** csi500，净超额 **IR 1.05**，过验收门槛 0.8；recorder `826b98ae`）
+- [x] 阶段 2：backtrader 验证闭环（Plan C：复演 vs qlib 年化差异 **−2.70pct**≤3pct；0.2%滑点超额 **7.86%**≥5%，双门槛通过）
 - [x] 阶段 2b：UMP 裁判模型（借鉴 abu，对买入信号二次否决）— 样本外 A/B：超额IR 0.21→0.48
 - [x] 阶段 3：LLM 因子迭代闭环 + 五道准入关卡（3 轮迭代，2 个因子过全部关卡并提升库组合样本外 IC）
-- [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；截至 2026-07-16 约 16/20 验收日，净值 11,651（8 只，累计 -2.91%）
-- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler），双线并行中
+- [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；7 月曾因买入通道故障被动清仓至 2 只/约 50% 现金，08-03 已按新模型重出补仓单（目标 5 只）
+- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler），双线 + TA 影子线并行中（**TA 未过门禁，不上 live**）
 - [ ] 阶段 5：全自动实盘（miniQMT）
 
 ## 环境
@@ -49,9 +49,13 @@ python research/rerun_backtest.py --recorder <id> --topk 50 --n_drop 3 --hold_th
                                          # 不重训，仅调组合参数快速迭代
 ```
 
-- 配置：`research/workflow_baseline.yaml`（Alpha158 + LGBM，**中证500 `csi500`**，基准 SH000905；
-  TopK50 / n_drop3 / hold_thresh10）。全 A 实验配置见 `workflow_baseline_all.yaml`（IR 未过关）
-- 切分：训练 2010-2021 / 验证 2022-2023 / 测试 2024 至今（严格样本外）
+- 配置：`research/workflow_baseline.yaml`（Alpha158 + **LGBM Plan C**，**中证500 `csi500`**，基准 SH000905；
+  TopK50 / n_drop3 / hold_thresh10）。Plan C = 降学习率 + 加强 L1/L2 + 更长 early-stop，
+  缓解 valid l2 过早恶化；对照实验配置见 `workflow_baseline_planC.yaml`（已并入生产 yaml）。
+  全 A 实验配置见 `workflow_baseline_all.yaml`（IR 未过关，勿作生产）。
+- 线上模型：MLflow recorder `826b98ae354e4f94bcfe0f3358b94089`
+  （样本外 IR **1.0459** / 年化超额 **11.19%**；未过门禁的重训会进 `mlruns_rejected/`，不会被 `predict_daily` 采用）
+- 切分：训练 2010-2021 / 验证 2022-2023 / 测试 2024 至今（严格样本外；当前回测窗至 2026-07-31）
 - 标签：5 日开盘价收益（1 日标签换手过高、被成本吃光，见 yaml 注释）
 - 回测约束：涨跌停 9.5% 限制、次日开盘价成交、双边费率含印花税与滑点
 - 产出：`data/reports/baseline_*.md`、`data/signals/latest_pred.csv`、MLflow 记录（`research/mlruns/`）
@@ -60,9 +64,9 @@ python research/rerun_backtest.py --recorder <id> --topk 50 --n_drop 3 --hold_th
 
 毛超额（无成本）IR 约 0.6~0.8，但**每日全量调仓时交易成本把超额全部吃光**
 （净 IR 一度为 -0.17）。压低换手是过验收的生命线：`hold_thresh=10`（最小持有 10 日，
-匹配 5 日标签）使净超额 IR 升至 **1.04**、年化净超额约 +9.3%、超额回撤 -13.8%，
-通过阶段1验收门槛（IR ≥ 0.8）。`execution/make_trade_plan.py` 已同步该低换手逻辑，
-确保实盘（路线一手动执行）与回测口径一致。
+匹配 5 日标签）使净超额 IR 先升至约 **1.04**；2026-08 Plan C 超参后为 **IR 1.05**、
+年化净超额约 +11.2%、超额回撤约 -17%，通过阶段1验收门槛（IR ≥ 0.8）。
+`execution/make_trade_plan.py` 已同步该低换手逻辑，确保实盘（路线一手动执行）与回测口径一致。
 
 ## 目录
 
@@ -93,8 +97,10 @@ python validation/replay_backtrader.py --start 2024-01-02 --end 2024-06-30 --sli
   整手 / 佣金万2.5(最低5) + 卖出印花税0.05% + 可配滑点**，次日开盘价成交（cheat-on-open）
 - 调仓逻辑严格对齐研究层 `TopkDropoutStrategy` + `hold_thresh` 与 `make_trade_plan`
 - 产出：`data/reports/validation_*.md`（滑点敏感性 + 与 qlib 年化差异 + 验收判定）
-- 验收（已通过）：复演与 qlib 年化超额差异 ≤3pct；0.2% 滑点下年化超额 ≥5%
-- 复演结果比 qlib 略保守（整手现金拖累 + 显式滑点），这正是"杜绝纸面成交"的意义
+- 验收（Plan C / 2026-08-03 已通过）：复演与 qlib 年化超额差异 **−2.70pct**≤3pct；
+  0.2% 滑点下年化超额 **7.86%**≥5%；日历对齐 624 交易日（勿再出现 feed 交集缩短事故）
+- 复演结果比 qlib 略保守（整手现金拖累 + 显式滑点），这正是"杜绝纸面成交"的意义；
+  真钱下限看 astock+0.2% 滑点行，勿按 Qlib 纸面数字承诺
 
 ### UMP 裁判模型（阶段2b，借鉴 abu 的信号二次否决）
 
@@ -165,7 +171,8 @@ data/meta/industry_map.csv           instrument,industry,name                  �
   记录每日模拟操作与收盘净值。
 - 实盘线：`live_manual_10k`，真实资金 12000 元（`mode: manual`，2026-06-22 起），目标持仓 5-10 只；
   系统生成订单，用户回填实际 `fills`，系统收盘后自动对账/净值/复盘。
-  截至 2026-07-16：净值 11,651.39 / 现金 4,183.39 / 持仓 8 只 / 累计 -2.91%。
+  截至 2026-07-31：净值约 12,034 / 现金约 6,032 / 持仓 **2 只**（7 月买入故障后的被动清仓残留）；
+  08-03 已按 Plan C 新模型重出补仓单（买方正科技/宗申动力/兆驰股份，目标 5 只）。
 - 两条线共享行情、信号、UMP、风控预检，但运行数据隔离在 `data/accounts/<account>/`。
 
 ### TA 定性否决影子线（TradingAgents 精简融入）
@@ -177,6 +184,10 @@ LGBM 仍是主选股；TA 只做买入候选的定性否决（类似加强版 UM
 - **零 Key 研究源（首期）**：公告=`eastmoney`（`cninfo` 备选）、新闻=`eastmoney`、基本面=`baostock`；舆情关闭
 - **流程**：拉三源简报 → Analyst 摘要 → Bull/Bear 多轮 → Judge VETO/PASS（置信度+风险标签门禁）
 - 产出：`data/overlays/ta_veto/YYYY-MM-DD.json`；缺文件/LLM 失败 → fail-open（不阻断出单）
+- **2026-08-03 门禁状态：未通过，禁止改 live**
+  - 影子线 07-31 清账重置后净值样本 **0/40**；须在 Plan C 新模型信号上重新累计 ≥40 交易日
+  - 既有 veto 文件约 11 天、有效否决仅 2 次，质量样本不足；偶发单日否决率 33% 踩稳定性红线
+  - 结论：live 维持 **LGBM(Plan C)+UMP**；TA 仅继续跑影子 A/B，双门禁 PASS 后再议
 
 ```bash
 # 日终（可 --dry-run-ta 跳过 LLM）
@@ -282,12 +293,12 @@ API 见 `webapp/server.py`（`/api/overview`、`/api/account/{acct}/{daily|holdi
 **个股行情（选中股票实际数据）**：总览的大盘指数、持仓/成交/对账表里的标的均可点击，弹出该股
 K线（红涨绿跌）+ 成交量 + 最近 OHLC 表，支持日/周/60分/15分切换。数据源（`webapp/quotes.py`）：
 
-- 首选 **东方财富 `push2his` K线接口**（免费无 key，含当日近实时真实价，结果缓存 60s）；
-- 连不通/被限流时回退 **本地 qlib 日线**（`$close/$factor` 还原真实价，仅到最近 release，每晚随流水线刷新）；
+- 首选 **腾讯 TXApi**（`gtimg` fqkline/mkline，免费无 token，含近实时真实价，结果缓存）；
+- 连不通时回退 **东方财富 `push2his`**；再不行回退 **本地 qlib 日线**
+  （`$close/$factor` 还原真实价，仅到最近 release，每晚随流水线刷新）；
 - 接口 `/api/quote/{instrument}?klt=&n=&fqt=`、`/api/indices`；返回里带 `source` 字段标明实际取数来源。
 
-> 注：部分机房 IP 会被东财/新浪限流（本机实测东财个股偶发断连、实时快照端点 502、新浪 403），
-> 此时看板自动回退 qlib EOD 数据并在来源处标注；从未被限流的网络访问可拿到当日/盘中行情。
+> 注：部分机房 IP 会被行情源限流；此时看板自动降级并在来源处标注。
 
 **正式实盘状态**：`live_manual_10k` 已于 2026-06-22 切 `mode: manual`、初始资金 12000，
 同花顺人工下单 + `record_fills` 回填。研究线仍 `simulated`，用于度量执行偏差。
