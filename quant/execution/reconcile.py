@@ -42,7 +42,11 @@ def paths(account: str | None) -> dict[str, Path]:
 def reconcile_orders(day: str, account: str | None = None,
                      order_day: str | None = None) -> tuple[list[str], list[dict], list[dict]]:
     p = paths(account)
-    order_day = order_day or day
+    # 订单日必须与 simulate_fills / record_fills 实际成交所依据的那张单一致：
+    # 二者都用 resolve_order_day（对数据跳空/缺单鲁棒，回退到 day 之前最近一张真实订单）。
+    # 此前默认 order_day=day，遇数据滞后/日历跳空时会拿「当日单」比「按前一日单成交的 fills」，
+    # 把每一笔正常成交都误判成「计划外成交/未成交」（见 2026-07 反复对账失败）。
+    order_day = order_day or C.resolve_order_day(account, day) or day
     orders = S.read_csv("orders", p["orders"] / f"{order_day}.csv")
     ff = p["fills"] / f"{day}.csv"
     fills = S.read_csv("fills", ff) if ff.exists() else pd.DataFrame(
@@ -84,7 +88,7 @@ def reconcile_orders(day: str, account: str | None = None,
 def reconcile_holdings(day: str, account: str | None = None,
                        order_day: str | None = None) -> list[dict]:
     p = paths(account)
-    order_day = order_day or day
+    order_day = order_day or C.resolve_order_day(account, day) or day
     tf = p["target"] / f"{order_day}.csv"
     if not tf.exists() or not p["holdings"].exists():
         return []
@@ -154,10 +158,11 @@ def main() -> int:
     p.add_argument("--account", default=None)
     args = p.parse_args()
     day = args.day or C.latest_trading_day()
+    order_day = args.order_day or C.resolve_order_day(args.account, day) or day
 
-    msgs, issues, slips = reconcile_orders(day, args.account, args.order_day)
-    devs = reconcile_holdings(day, args.account, args.order_day)
-    report = render(day, issues, slips, devs, args.order_day)
+    msgs, issues, slips = reconcile_orders(day, args.account, order_day)
+    devs = reconcile_holdings(day, args.account, order_day)
+    report = render(day, issues, slips, devs, order_day)
     reports = paths(args.account)["reports"]
     reports.mkdir(parents=True, exist_ok=True)
     out = reports / f"reconcile_{day}.md"

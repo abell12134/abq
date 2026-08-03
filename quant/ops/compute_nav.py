@@ -107,11 +107,20 @@ def main() -> int:
 
     # 单日亏损硬熔断：写账户标志 + 剥掉当日订单 BUY（次日不再开新仓）
     halt = float(C.CFG.get("risk", {}).get("daily_loss_halt", 0.03))
+    # 合理跌幅下限：多头组合单日极限≈全仓跌停（约 -10%），留容差到 -halt_floor。
+    # 超过此幅度几乎必为数据缺口/停牌复牌/模型或宇宙切换后的净值重算断点，而非真实交易亏损。
+    # 2026-07-15 曾对 (真实 -0.21%) 误报 -19.67% 触发熔断，剥掉买入引发被动清仓螺旋。
+    halt_floor = float(C.CFG.get("risk", {}).get("daily_loss_halt_floor", 0.11))
     if daily_ret <= -halt:
-        reason = f"daily_ret={daily_ret:.2%} <= -{halt:.0%}"
-        C.set_halt(day, args.account, reason=reason)
-        C.alert("CRIT", f"当日亏损 {daily_ret:.2%} 触及熔断阈值 {-halt:.0%}，"
-                "已暂停开新仓（仅允许卖出）", day)
+        if daily_ret < -halt_floor:
+            C.alert("CRIT", f"当日收益 {daily_ret:.2%} 超出合理跌幅 -{halt_floor:.0%}，"
+                    "疑似数据缺口/净值重算断点，未触发熔断，请人工核查净值与持仓 "
+                    f"（prev_nav={prev_nav:,.2f}→nav={nav:,.2f}）", day)
+        else:
+            reason = f"daily_ret={daily_ret:.2%} <= -{halt:.0%}"
+            C.set_halt(day, args.account, reason=reason)
+            C.alert("CRIT", f"当日亏损 {daily_ret:.2%} 触及熔断阈值 {-halt:.0%}，"
+                    "已暂停开新仓（仅允许卖出）", day)
     return 0
 
 

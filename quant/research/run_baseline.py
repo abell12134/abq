@@ -35,6 +35,8 @@ QUANT = HERE.parent
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(HERE / "workflow_baseline.yaml"))
+    parser.add_argument("--min-ir", type=float, default=0.8,
+                        help="阶段1验收门槛：样本外 IR 低于此值不晋升为线上模型")
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
 
@@ -47,7 +49,15 @@ def main() -> int:
     )
 
     sys.path.insert(0, str(HERE))  # alpha158_plus_lab
-    qlib.init(provider_uri=cfg["qlib_init"]["provider_uri"], region="cn")
+    # 实验记录必须写到 research/mlruns —— predict_daily.load_latest_model 只从这里读，
+    # 否则 qlib.init 默认按 CWD 落到 quant/mlruns，重训模型永远不会被每日信号采用。
+    exp_uri = "file:" + str(HERE / "mlruns")
+    qlib.init(provider_uri=cfg["qlib_init"]["provider_uri"], region="cn",
+              exp_manager={
+                  "class": "MLflowExpManager",
+                  "module_path": "qlib.workflow.expm",
+                  "kwargs": {"uri": exp_uri, "default_exp_name": "Experiment"},
+              })
 
     print("[1/4] 构建数据集（Alpha158 因子计算，耗时较长）")
     dataset = init_instance_by_config(cfg["task"]["dataset"])
@@ -70,12 +80,9 @@ def main() -> int:
         # ---- 汇总指标 ----
         metrics = recorder.list_metrics()
         pred: pd.DataFrame = recorder.load_object("pred.pkl")
+        rec_id = recorder.id
 
-    sig_dir = QUANT / "data" / "signals"
-    sig_dir.mkdir(parents=True, exist_ok=True)
-    pred.to_csv(sig_dir / "latest_pred.csv")
-
-    report = render_report(metrics, recorder.id, cfg)
+    report = render_report(metrics, rec_id, cfg)
     rep_dir = QUANT / "data" / "reports"
     rep_dir.mkdir(parents=True, exist_ok=True)
     rep_path = rep_dir / f"baseline_{dt.date.today():%Y%m%d}.md"
@@ -83,11 +90,43 @@ def main() -> int:
     print(report)
     print(f"[OK] 报告已写入 {rep_path}")
 
-    # 阶段1验收门槛：样本外信息比率 >= 0.8
+    # 阶段1验收门槛：样本外信息比率 >= min_ir。
+    # 关键纪律：未过门禁的模型【绝不】晋升为线上信号——predict_daily.load_latest_model
+    # 取本 experiment 里 end_time 最新的 recorder，因此若把不达标模型留在实验里，它会
+    # 自动顶掉已验证模型（2026-07 事故根因）。故未过门禁时：不写 latest_pred.csv，
+    # 并把本次 recorder 移出实验目录到 mlruns_rejected/ 隔离，保持线上仍用上一版已验证模型。
     ir = metrics.get("1day.excess_return_with_cost.information_ratio")
-    if ir is not None and ir < 0.8:
-        print(f"[WARN] 样本外 IR={ir:.2f} 未达验收门槛 0.8，需要迭代")
+    sig_dir = QUANT / "data" / "signals"
+    sig_dir.mkdir(parents=True, exist_ok=True)
+    if ir is not None and ir < args.min_ir:
+        print(f"[WARN] 样本外 IR={ir:.3f} 未达验收门槛 {args.min_ir}，不晋升为线上模型，需迭代")
+        moved = _quarantine_recorder(rec_id, ir)
+        if moved:
+            print(f"[SKIP] 已将不达标 recorder 隔离到 {moved}；latest_pred.csv 保持上一版不变")
+        else:
+            print("[WARN] 未能定位 recorder 目录做隔离，请人工核查 research/mlruns")
+        return 0
+    pred.to_csv(sig_dir / "latest_pred.csv")
+    print(f"[OK] IR={ir} 达标，已晋升：写入 {sig_dir / 'latest_pred.csv'}")
     return 0
+
+
+def _quarantine_recorder(rec_id: str, ir: float | None) -> Path | None:
+    """把未过门禁的 recorder 从 experiment 目录移到 mlruns_rejected/，
+    使 predict_daily 不再把它当作最新线上模型。返回目标路径或 None。"""
+    import shutil
+    mlruns = HERE / "mlruns"
+    for exp_dir in mlruns.glob("*"):
+        cand = exp_dir / rec_id
+        if cand.is_dir():
+            rej = HERE / "mlruns_rejected"
+            rej.mkdir(parents=True, exist_ok=True)
+            tag = f"{rec_id[:8]}_{dt.date.today():%Y%m%d}_ir{ir:.2f}" if ir is not None \
+                else f"{rec_id[:8]}_{dt.date.today():%Y%m%d}"
+            dst = rej / tag
+            shutil.move(str(cand), str(dst))
+            return dst
+    return None
 
 
 def render_report(m: dict, rec_id: str, cfg: dict) -> str:

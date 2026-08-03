@@ -59,37 +59,67 @@ def main() -> int:
         insts = orders["instrument"].tolist()
         op = C.open_prices(insts, day)         # 执行日开盘价（成交价）
         pc = C.close_prices(insts, order_day)  # 订单日收盘价（判定涨跌停基准）
-        blocked = 0
-        rows = []
+        # 先按停牌/涨跌停确定各单可成交股数（价格无关的执行摩擦）
+        prelim = []  # [inst, side, shares, price]
         for r in orders.itertuples():
             price = float(op.get(r.instrument, 0.0))
             prev = float(pc.get(r.instrument, 0.0))
             shares = int(r.shares)
+            side = str(r.side).upper()
             # 停牌：当日无开盘价，买卖都无法成交
             if price <= 0:
                 shares = 0
             elif prev > 0:
                 chg = price / prev - 1
                 lim = C._limit_pct(r.instrument) * 0.97
-                side = str(r.side).upper()
                 # 开盘涨停买不进 / 开盘跌停卖不出
                 if (side == "BUY" and chg >= lim) or (side == "SELL" and chg <= -lim):
                     shares = 0
-            if shares == 0:
-                blocked += 1
-            amount = round(shares * price, 2)
-            rows.append({
-                "instrument": r.instrument,
-                "side": r.side,
-                "shares": shares,
-                "price": round(price, 2),
-                "amount": amount,
-                "fee": 0.0,  # apply_fills 会按统一费率重算，保持与实盘线一致
-            })
+            prelim.append([r.instrument, side, shares, price])
+        blocked_liq = sum(1 for x in prelim if x[2] == 0)
+
+        # 资金约束：先卖后买，模拟线不透支（真实账户无融资）。
+        # 若买单总额超过「账上现金 + 当日卖出回款」，则按订单顺序买到钱不够为止，
+        # 其余买单记为未成交（reconcile 会暴露）。此前无此约束，plan 一旦超额下单，
+        # apply_fills 直接扣成负现金形成杠杆（2026-07 shadow 线现金 -11,575）。
+        cst = C.CFG.get("costs", {})
+        comm = float(cst.get("commission", 0.00025))
+        mincomm = float(cst.get("min_commission", 5))
+        stamp = float(cst.get("stamp_duty_sell", 0.0005))
+        slip = float(cst.get("slippage", 0.001))
+        acc0 = C.load_account(args.account) or {}
+        cash_pool = float(acc0.get("cash", 0.0))
+        for inst, side, shares, price in prelim:
+            if side == "SELL" and shares > 0:
+                amt = shares * price
+                cash_pool += amt - amt * slip - max(amt * comm, mincomm) - amt * stamp
+        blocked_cash = 0
+        for row in prelim:
+            inst, side, shares, price = row
+            if side == "BUY" and shares > 0:
+                amt = shares * price
+                need = amt + amt * slip + max(amt * comm, mincomm)
+                if need > cash_pool + 1e-6:
+                    row[2] = 0
+                    blocked_cash += 1
+                else:
+                    cash_pool -= need
+
+        rows = [{
+            "instrument": inst,
+            "side": side,
+            "shares": shares,
+            "price": round(price, 2),
+            "amount": round(shares * price, 2),
+            "fee": 0.0,  # apply_fills 会按统一费率重算，保持与实盘线一致
+        } for inst, side, shares, price in prelim]
         fills = pd.DataFrame(rows)
-        if blocked:
-            C.alert("INFO", f"[{args.account}] {day} 开盘停牌/涨跌停导致 {blocked} 笔未成交",
+        if blocked_liq:
+            C.alert("INFO", f"[{args.account}] {day} 开盘停牌/涨跌停导致 {blocked_liq} 笔未成交",
                     day)
+        if blocked_cash:
+            C.alert("WARN", f"[{args.account}] {day} 资金不足，{blocked_cash} 笔买入未成交"
+                    "（先卖后买后现金仍不够，模拟线不透支）", day)
 
     out = dirs["fills"] / f"{day}.csv"
     S.write_csv("fills", fills, out)

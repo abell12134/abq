@@ -238,6 +238,19 @@ def main() -> int:
         buy_candi = [b for b in buy_candi
                      if not (b in st.index and (st.at[b, "limit_up"] or st.at[b, "suspended"]))]
 
+    # 有持仓时可用现金默认应取账户账上闲置现金；未显式传 --cash 时从 account.json 兜底，
+    # 避免把闲置现金当 0 —— 否则单票预算按「持仓市值×权重」缩水，闲置越多越买不起整手，
+    # 造成现金永不部署、持仓单调萎缩（2026-07 研究/实盘线即因此被动清仓）。
+    avail_cash = float(args.cash or 0.0)
+    if avail_cash <= 0 and args.account:
+        sys.path.insert(0, str(QUANT / "ops"))
+        import common as _C
+        _acc = _C.load_account(args.account) or {}
+        _acc_cash = _acc.get("cash")
+        if _acc_cash is not None:
+            avail_cash = float(_acc_cash)
+            print(f"[cash] 未显式传 --cash，按账户 account.json 闲置现金 {avail_cash:,.2f} 计")
+
     # 总资产 = 持仓市值 + 现金（或首次给定的 capital）
     if holdings.empty:
         if not args.capital:
@@ -247,7 +260,7 @@ def main() -> int:
     else:
         mv = sum(float(prices.get(r.instrument, r.last_price)) * r.shares
                  for r in holdings.itertuples())
-        total = mv + args.cash
+        total = mv + avail_cash
 
     # hold_thresh 过滤：持有不足 hold_thresh 个交易日的不卖（推迟换仓）
     sell_final = [s for s in sell_candi
@@ -300,7 +313,13 @@ def main() -> int:
     bench_ind = {}
     ind_max = float(CFG.get("strategy", {}).get("industry_deviation_max") or 0)
     ind_min_pos = int(CFG.get("strategy", {}).get("industry_min_positions") or 20)
-    use_industry = (not halt_active) and ind_max > 0 and topk >= ind_min_pos
+    # 行业偏离用等权口径衡量：当持仓明显少于 ind_min_pos 时，等权集中度必然 >max_dev，
+    # would_breach 会对所有候选返回 True，导致「越空越买不进、买不进越空」的死循环。
+    # 因此仅当卖出后仍保有 ≥ind_min_pos 只（组合已足够分散）时才启用行业约束；
+    # 建仓/重建阶段先放行买入把持仓补回目标区间，避免行业约束把组合饿死。
+    kept_count = len([h for h in held_inst if h not in set(sell_final)])
+    use_industry = (not halt_active) and ind_max > 0 and topk >= ind_min_pos \
+        and kept_count >= ind_min_pos
     if use_industry:
         try:
             from industry import load_industry_map, industry_weights, would_breach
@@ -349,7 +368,7 @@ def main() -> int:
         else:
             sell_proceeds = sum(float(prices.get(s, 0)) * int(cur_shares.get(s, 0))
                                 for s in sell_final)
-            buy_cash = float(args.cash) + sell_proceeds
+            buy_cash = float(avail_cash) + sell_proceeds
         spent = sum(t["shares"] * float(prices.get(t["instrument"], 0))
                     for t in trades if t["side"] == "BUY")
         cash_left = buy_cash - spent

@@ -18,6 +18,9 @@ execution:
   use_ump: true
   risk_check: true
   lot_size: 100
+  # 等权 floor 取整会留下大量闲置现金；开启后用建仓剩余现金按分数顺位补整手（≤max_weight），
+  # 把闲置压到 1 手以内，避免持仓萎缩后现金长期闲置、超额被现金拖累（2026-08 修复）。
+  redeploy_residual_cash: true
   note: "研究模拟线：系统按次日开盘价自动模拟成交，并记录收盘净值。"
 
 review:

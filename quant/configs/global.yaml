@@ -39,4 +39,7 @@ data_quality:
 
 risk:
   daily_loss_halt: 0.03     # 单日亏损 3% 硬熔断：禁买+剥除当日订单 BUY
+  # 合理跌幅下限：超过此幅度（多头组合单日极限≈全仓跌停）判为数据/重算断点，不熔断只告警，
+  # 避免宇宙/模型切换、停复牌、缺口导致的净值重算误触发熔断（见 2026-07-15 事故）。
+  daily_loss_halt_floor: 0.11
   position_deviation_alert: 0.02
