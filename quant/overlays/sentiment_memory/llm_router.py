@@ -55,7 +55,7 @@ class LLMEndpoint:
 
 def peak_endpoint() -> LLMEndpoint | None:
     key = _get("LLM_PEAK_API_KEY")
-    base = _get("LLM_PEAK_BASE_URL", "http://118.195.177.58:8001/v1")
+    base = _get("LLM_PEAK_BASE_URL", "http://127.0.0.1:8001/v1")
     model = _get("LLM_PEAK_MODEL", "Qwen3.6-35B-A3B")
     if not key or not base:
         return None
