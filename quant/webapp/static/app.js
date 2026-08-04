@@ -411,11 +411,292 @@ async function loadAlerts() {
   document.getElementById("alert-list").innerHTML = a + "</tbody></table>";
 }
 
+// ----------------- 舆情跟踪 -----------------
+let sentInst = null;
+
+function sentPolarity(s) {
+  s = (s || "neutral").toLowerCase();
+  if (s === "positive") return "pos";
+  if (s === "negative") return "neg";
+  return "";
+}
+function sentLabel(s) {
+  return ({ positive: "偏多", negative: "偏空", mixed: "分化", neutral: "中性" })[s] || (s || "中性");
+}
+
+async function loadSentiment(keepSelection = true) {
+  const prev = keepSelection ? sentInst : null;
+  const cat = await getJSON("/api/sentiment/catalog");
+  const peakEl = document.getElementById("sent-peak");
+  peakEl.textContent = cat.peak_hour ? "高峰 · 自部署" : "闲时 · DeepSeek";
+  peakEl.className = "badge " + (cat.peak_hour ? "peak" : "offpeak");
+  document.getElementById("sent-updated").textContent =
+    cat.updated_at ? ("更新 " + cat.updated_at) : "尚无报告";
+
+  const list = document.getElementById("sent-list");
+  list.innerHTML = "";
+  const items = cat.instruments || [];
+  if (!items.length) {
+    list.innerHTML = '<div class="empty" style="padding:12px">暂无跟踪标的</div>';
+    document.getElementById("sent-empty").classList.remove("hidden");
+    document.getElementById("sent-detail").classList.add("hidden");
+    return;
+  }
+  items.forEach(it => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sent-item" + (prev === it.instrument ? " active" : "");
+    b.innerHTML = `<div><span class="code">${it.instrument}</span>`
+      + `<span class="name">${it.name || ""}</span></div>`
+      + `<div class="snip">${it.headline || "—"}</div>`
+      + `<span class="pill ${it.sentiment || ""}">${sentLabel(it.sentiment)} `
+      + `${it.score == null ? "" : Number(it.score).toFixed(2)}</span>`;
+    b.onclick = () => selectSentiment(it.instrument);
+    list.appendChild(b);
+  });
+  const pick = (prev && items.some(x => x.instrument === prev))
+    ? prev : items[0].instrument;
+  await selectSentiment(pick);
+}
+
+async function selectSentiment(instrument) {
+  sentInst = instrument;
+  document.querySelectorAll(".sent-item").forEach(el => {
+    el.classList.toggle("active", el.querySelector(".code")?.textContent === instrument);
+  });
+  document.getElementById("sent-empty").classList.add("hidden");
+  document.getElementById("sent-detail").classList.remove("hidden");
+
+  const data = await getJSON(`/api/sentiment/${instrument}`);
+  const r = data.report;
+  if (!r) {
+    document.getElementById("sent-empty").classList.remove("hidden");
+    document.getElementById("sent-empty").textContent = `${instrument} 尚无分析报告，请点击「重新分析」。`;
+    document.getElementById("sent-detail").classList.add("hidden");
+    return;
+  }
+  document.getElementById("sent-name").textContent =
+    `${r.name ? r.name + " · " : ""}${instrument}`;
+  document.getElementById("sent-headline").textContent = r.headline || "—";
+  const scoreEl = document.getElementById("sent-score");
+  scoreEl.textContent = r.score == null ? "—" : Number(r.score).toFixed(2);
+  scoreEl.className = "value " + sentPolarity(r.sentiment);
+  document.getElementById("sent-stance").textContent =
+    `${sentLabel(r.sentiment)} · ${r.stance || "—"}`;
+
+  const tags = document.getElementById("sent-tags");
+  tags.innerHTML = (r.risk_tags || []).map(t => `<span class="tag">${t}</span>`).join("");
+  document.getElementById("sent-summary").textContent = r.summary || "—";
+  const watch = document.getElementById("sent-watch");
+  watch.innerHTML = (r.watchpoints || []).map(w => `<li>${w}</li>`).join("")
+    || "<li class='empty'>暂无</li>";
+
+  // 关键事件
+  const evBox = document.getElementById("sent-events");
+  if (!(r.key_events || []).length) evBox.innerHTML = '<div class="empty">暂无关键事件</div>';
+  else {
+    let h = "<table><thead><tr><th>日期</th><th>事件</th><th>影响</th></tr></thead><tbody>";
+    for (const e of r.key_events) {
+      h += `<tr><td>${e.date || "—"}</td><td style="text-align:left">${e.event || ""}</td>`
+        + `<td class="impact-${e.impact || ""}">${e.impact || "—"}</td></tr>`;
+    }
+    evBox.innerHTML = h + "</tbody></table>";
+  }
+
+  // 舆情条目
+  const newsBox = document.getElementById("sent-news");
+  const news = r.news_preview || [];
+  if (!news.length) newsBox.innerHTML = '<div class="empty">暂无条目</div>';
+  else {
+    let h = "<table><thead><tr><th>时间</th><th>源</th><th>标题</th></tr></thead><tbody>";
+    for (const n of news.slice(0, 15)) {
+      const title = n.url
+        ? `<a href="${n.url}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${n.title || "—"}</a>`
+        : (n.title || "—");
+      h += `<tr><td>${(n.published || "").slice(0, 16)}</td><td>${n.source || ""}</td>`
+        + `<td style="text-align:left;white-space:normal;max-width:360px">${title}</td></tr>`;
+    }
+    newsBox.innerHTML = h + "</tbody></table>";
+  }
+
+  // 历史报告表 + 情绪轨迹
+  const hist = data.history || [];
+  const histBox = document.getElementById("sent-hist");
+  if (!hist.length) histBox.innerHTML = '<div class="empty">暂无历史</div>';
+  else {
+    let h = "<table><thead><tr><th>日期</th><th>情绪</th><th>分数</th><th>结论</th></tr></thead><tbody>";
+    for (const x of hist.slice(0, 12)) {
+      h += `<tr><td>${x.date}</td><td>${sentLabel(x.sentiment)}</td>`
+        + `<td class="${sentPolarity(x.sentiment)}">${x.score == null ? "—" : Number(x.score).toFixed(2)}</td>`
+        + `<td style="text-align:left;white-space:normal">${x.headline || ""}</td></tr>`;
+    }
+    histBox.innerHTML = h + "</tbody></table>";
+  }
+  const hChrono = [...hist].reverse();
+  mkChart(document.getElementById("sentHistChart"), {
+    type: "line",
+    data: {
+      labels: hChrono.map(x => x.date),
+      datasets: [lineDS("情绪分", hChrono.map(x => x.score), COLORS.live)],
+    },
+    options: { ...baseOpts, plugins: { legend: { display: false } },
+      scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, min: -1, max: 1 } } },
+  });
+
+  const meta = r.meta || {};
+  document.getElementById("sent-meta").textContent =
+    `模型 ${meta.model || "—"}（${meta.endpoint || "—"}） · 舆情 ${r.news_count ?? "—"} 条`
+    + ` · 向量记忆 ${data.vector?.count ?? r.vector_count ?? "—"} 条`
+    + ` · 报告日 ${r.date || "—"}`;
+
+  // 近三月价格
+  try {
+    const q = await getJSON(`/api/quote/${instrument}?klt=101&n=70&_=${Date.now()}`);
+    const canvas = document.getElementById("sentPriceChart");
+    if (!q.ok || !q.klines?.length) {
+      if (charts.sentPriceChart) { charts.sentPriceChart.destroy(); delete charts.sentPriceChart; }
+    } else {
+      const L = q.klines.map(k => k.date);
+      const closes = q.klines.map(k => k.close);
+      const base = closes.find(c => c != null);
+      const cum = closes.map(c => (base ? +((c / base - 1) * 100).toFixed(3) : null));
+      mkChart(canvas, {
+        type: "line",
+        data: {
+          labels: L,
+          datasets: [
+            { ...lineDS("收盘价", closes, COLORS.research), yAxisID: "y" },
+            { ...lineDS("窗口累计%", cum, COLORS.live), yAxisID: "y1" },
+          ],
+        },
+        options: {
+          ...baseOpts,
+          scales: {
+            x: baseOpts.scales.x,
+            y: { ...baseOpts.scales.y, position: "left", title: { display: true, text: "价格", color: "#8b98a9" } },
+            y1: {
+              position: "right", ticks: { color: "#8b98a9" },
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "累计%", color: "#8b98a9" },
+            },
+          },
+        },
+      });
+    }
+  } catch (e) { console.error(e); }
+}
+
+document.getElementById("sent-refresh")?.addEventListener("click", () => loadSentiment(true));
+
+function normalizeSentCode(raw) {
+  let s = String(raw || "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!s) return null;
+  s = s.replace(/\.SH$/, "").replace(/\.SZ$/, "").replace(/\./g, "");
+  if (/^(SH|SZ)\d{6}$/.test(s)) return s;
+  if (/^\d{6}$/.test(s)) return (s[0] === "0" || s[0] === "3") ? ("SZ" + s) : ("SH" + s);
+  return null;
+}
+
+async function triggerSentimentRun({ instrument = null, btn = null, label = "重新分析" } = {}) {
+  if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
+  let triggered = false;
+  try {
+    const q = new URLSearchParams();
+    if (instrument) q.set("instrument", instrument);
+    else q.set("account", "live_manual_10k");
+    const r = await fetch("/api/sentiment/run?" + q.toString(), { method: "POST" });
+    const raw = await r.text();
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${raw.slice(0, 120)}`);
+    let body = {};
+    try { body = JSON.parse(raw); } catch (_) { /* ignore */ }
+    triggered = true;
+    const target = body.instrument || instrument;
+    if (target) sentInst = target;
+    const startedAt = Date.now();
+    let prevUpdated = null;
+    try {
+      const cat0 = await getJSON("/api/sentiment/catalog");
+      prevUpdated = cat0.updated_at || null;
+    } catch (_) { /* ignore */ }
+    const maxMs = target ? 420000 : 240000;
+    for (let i = 0; i < 90; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      try {
+        if (target) {
+          const d = await getJSON(`/api/sentiment/${target}`);
+          const cat = await getJSON("/api/sentiment/catalog");
+          if (d.report && (!prevUpdated || cat.updated_at !== prevUpdated || i >= 2)) {
+            await loadSentiment(true);
+            if (sentInst === target) {
+              // 报告 saved_at 晚于触发，或已有报告则展示并在有更新后结束
+              if (cat.updated_at !== prevUpdated || i >= 6) break;
+            }
+          }
+        } else {
+          const cat = await getJSON("/api/sentiment/catalog");
+          if (cat.instruments?.length && cat.updated_at && cat.updated_at !== prevUpdated) {
+            await loadSentiment(true);
+            break;
+          }
+          if (i === 3 || i === 11) await loadSentiment(true);
+        }
+      } catch (pollErr) {
+        console.warn("sentiment poll", pollErr);
+      }
+      if (Date.now() - startedAt > maxMs) break;
+    }
+    try {
+      await loadSentiment(true);
+      if (target) await selectSentiment(target);
+    } catch (showErr) {
+      console.warn("sentiment show", showErr);
+    }
+  } catch (e) {
+    console.error(e);
+    if (!triggered) alert("触发分析失败：" + (e.message || e));
+    else alert("分析已触发，但刷新结果时出错：" + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+document.getElementById("sent-run")?.addEventListener("click", () => {
+  const btn = document.getElementById("sent-run");
+  triggerSentimentRun({ btn, label: "重新分析" });
+});
+
+document.getElementById("sent-analyze-one")?.addEventListener("click", () => {
+  const input = document.getElementById("sent-code");
+  const inst = normalizeSentCode(input?.value);
+  if (!inst) {
+    alert("请输入有效代码，例如 600519 或 SH600519");
+    input?.focus();
+    return;
+  }
+  input.value = inst;
+  const btn = document.getElementById("sent-analyze-one");
+  triggerSentimentRun({ instrument: inst, btn, label: "分析" });
+});
+
+document.getElementById("sent-code")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("sent-analyze-one")?.click();
+});
+
+document.getElementById("sent-rerun-one")?.addEventListener("click", () => {
+  if (!sentInst) {
+    alert("请先选择一只已分析的股票");
+    return;
+  }
+  const btn = document.getElementById("sent-rerun-one");
+  triggerSentimentRun({ instrument: sentInst, btn, label: "重新分析本股" });
+});
+
 // ----------------- 路由 -----------------
 async function loadTab(tab) {
   try {
     if (tab === "overview") await loadOverview();
     else if (tab === "daily-ops") await loadDailyOps();
+    else if (tab === "sentiment") await loadSentiment(true);
     else if (tab === "compare") await loadCompare();
     else if (tab === "alerts") await loadAlerts();
     else await loadAccount(tab);

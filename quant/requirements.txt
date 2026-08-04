@@ -5,6 +5,8 @@ lightgbm==4.6.0
 baostock==0.9.2
 backtrader==1.9.78.123   # 阶段2 验证层：事件驱动复演引擎
 openai>=1.40             # 阶段3 因子提议：OpenAI 兼容客户端（deepseek 等）
+cursor-sdk>=0.1.0        # 实盘舆情硬伤筛：Cursor Agent 联网检索（Python≥3.10）
+akshare>=1.14            # 舆情记忆：财联社/新浪 7x24；TA 否决公告/新闻
 pandas==2.3.3
 numpy==2.2.6
 pyyaml

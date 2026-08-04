@@ -117,6 +117,18 @@ def _tx_name(block: dict, symbol: str, instrument: str) -> str:
     return instrument
 
 
+def _tx_num(v, default: float = 0.0) -> float:
+    """腾讯 K 线字段偶发 dict/None，统一安全转 float。"""
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str) and v.strip():
+        try:
+            return float(v)
+        except ValueError:
+            return default
+    return default
+
+
 def _parse_tx_rows(rows: list) -> list[dict]:
     out = []
     for row in rows:
@@ -124,12 +136,12 @@ def _parse_tx_rows(rows: list) -> list[dict]:
             continue
         out.append({
             "date": _tx_fmt_dt(str(row[0])),
-            "open": float(row[1]),
-            "close": float(row[2]),
-            "high": float(row[3]),
-            "low": float(row[4]),
-            "volume": float(row[5]),
-            "amount": float(row[6]) if len(row) > 6 and row[6] not in (None, "", {}) else 0.0,
+            "open": _tx_num(row[1]),
+            "close": _tx_num(row[2]),
+            "high": _tx_num(row[3]),
+            "low": _tx_num(row[4]),
+            "volume": _tx_num(row[5]),
+            "amount": _tx_num(row[6]) if len(row) > 6 else 0.0,
         })
     return out
 

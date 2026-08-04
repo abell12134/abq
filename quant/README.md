@@ -18,8 +18,8 @@
 - [x] 阶段 2：backtrader 验证闭环（Plan C：复演 vs qlib 年化差异 **−2.70pct**≤3pct；0.2%滑点超额 **7.86%**≥5%，双门槛通过）
 - [x] 阶段 2b：UMP 裁判模型（借鉴 abu，对买入信号二次否决）— 样本外 A/B：超额IR 0.21→0.48
 - [x] 阶段 3：LLM 因子迭代闭环 + 五道准入关卡（3 轮迭代，2 个因子过全部关卡并提升库组合样本外 IC）
-- [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；7 月曾因买入通道故障被动清仓至 2 只/约 50% 现金，08-03 已按新模型重出补仓单（目标 5 只）
-- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler），双线 + TA 影子线并行中（**TA 未过门禁，不上 live**）
+- [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；舆情硬伤筛 + 长期记忆已接入 evening；7 月曾因买入通道故障被动清仓至 2 只/约 50% 现金，08-03 已按新模型重出补仓单（目标 5 只）
+- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler），双线 + TA 影子线并行；看板含「舆情跟踪」页（**TA 未过门禁，不上 live**）
 - [ ] 阶段 5：全自动实盘（miniQMT）
 
 ## 环境
@@ -83,12 +83,13 @@ contracts/       层间数据契约（信号、目标持仓等 CSV schema）
 configs/         global.yaml 全局配置 + accounts/<account>.yaml 账户 profile（资金/策略/模式）
 validation/      backtrader 复演引擎(replay_backtrader.py) + UMP 裁判(ump_judge.py)，阶段2 已实现
 factor_lab/      （阶段3）LLM 因子提议(llm_propose) + qlib 评估(evaluate) + 五道准入关卡(run_iteration) + 因子库(factors.yaml)
-overlays/        （TA 否决层）ta_veto：定性买入否决 JSON 契约 + A 股适配 + run_veto / gate_report
+overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）
 execution/       调仓清单(make_trade_plan) + 成交回填(record_fills) + 模拟成交(simulate_fills) + 对账(reconcile)
 ops/             运维层：编排(run_daily) + 净值(compute_nav) + 日报(daily_report) + 监控(monitor) + 双线复盘(review_accounts) + TA复盘(review_ta_overlay) + 回填(backfill) + 公共库(common) + crontab.example
 contracts/       层间数据契约 schema 校验/读写(schemas.py)
 webapp/          （阶段5a）看板服务 server.py(FastAPI+APScheduler) + serve.sh + templates/ + static/
-data/            运行时数据（signals/reports/nav/fills、accounts/<account>/ 双线隔离，overlays/ta_veto，不入 git）
+data/            运行时数据（signals/reports/nav/fills、accounts/<account>/ 双线隔离，
+                 overlays/{ta_veto,sentiment_veto,sentiment_memory}，不入 git）
 ```
 
 ## 验证层（阶段2，backtrader 独立复演）
@@ -126,7 +127,9 @@ python validation/replay_backtrader.py --start 2025-07-01 --compare-ump   # 有/
 ## 因子迭代闭环（阶段3，LLM 挖掘 + 五道准入关卡）
 
 ```bash
-# 凭证放 configs/secret.env（已 gitignore）：LLM_API_KEY / LLM_MODEL / LLM_BASE_URL
+# 凭证放 configs/secret.env（已 gitignore）：
+#   LLM_API_KEY / LLM_MODEL / LLM_BASE_URL
+#   CURSOR_API_KEY / CURSOR_AGENT_MODEL / CURSOR_AGENT_RUNTIME（实盘舆情筛）
 python factor_lab/run_iteration.py --iters 3 --k 5
 ```
 
@@ -180,6 +183,47 @@ data/meta/industry_map.csv           instrument,industry,name                  �
   截至 2026-07-31：净值约 12,034 / 现金约 6,032 / 持仓 **2 只**（7 月买入故障后的被动清仓残留）；
   08-03 已按 Plan C 新模型重出补仓单（买方正科技/宗申动力/兆驰股份，目标 5 只）。
 - 两条线共享行情、信号、UMP、风控预检，但运行数据隔离在 `data/accounts/<account>/`。
+
+### 实盘舆情硬伤筛（Cursor Agent，仅 live）
+
+`live_manual_10k` 在 `make_trade_plan` 之后调用 Cursor SDK Local Agent 联网检索，
+对 BUY 做硬伤否决（ST/立案/业绩暴雷/债务危机等），**不改模型原单**：
+
+- 开关：`configs/accounts/live_manual_10k.yaml` → `execution.use_sentiment_veto: true`
+- 凭证：`configs/secret.env` → `CURSOR_API_KEY` / `CURSOR_AGENT_MODEL` / `CURSOR_AGENT_RUNTIME=local`
+- 产出：`data/overlays/sentiment_veto/<日>.json`、`orders_exec/<日>.csv`、
+  `reports/sentiment_checklist_<日>.md`；失败 fail-open
+- 人工下单优先 `orders_exec/`；看板操作清单也会优先展示执行单
+
+```bash
+# 单独重跑（对已有订单日）
+python overlays/sentiment_veto/run_sentiment.py --date 2026-08-03 --account live_manual_10k
+# dry-run 只列候选
+python overlays/sentiment_veto/run_sentiment.py --date 2026-08-03 --account live_manual_10k --dry-run
+```
+
+### 舆情长期记忆（多源采集 + LLM 摘要 + 向量库）
+
+对持仓/订单标的持续跟踪近 30–90 日公开舆情，写入本地向量记忆，看板「舆情跟踪」页展示近三月走势与分析报告。设计背景见根目录《设计实现方案》§9.8。
+
+- 数据源：东方财富 JSONP 个股新闻；财联社 / 新浪 7x24（AKShare + HTTP 回退；滚动入库累积长期记忆）
+- 模型路由：北京时间高峰（9–12 / 14–18）优先自部署 `LLM_PEAK_*`（Qwen，默认关 thinking）；
+  闲时或失败回落 `LLM_OFFPEAK_MODEL` / `LLM_MODEL`（DeepSeek）
+- 开关：`execution.use_sentiment_memory: true`（live 默认开；evening 在硬伤筛之后跑；失败不阻断下单）
+- 产出：`data/overlays/sentiment_memory/{raw,vectors,reports,catalog.json}`
+- 看板页：左侧跟踪列表 + 代码输入分析；详情含近三月走势、情绪分、摘要、关键事件、舆情条目；
+  「重新分析本股」只重跑当前标的
+- API：`GET /api/sentiment/catalog`、`GET /api/sentiment/{instrument}`、
+  `POST /api/sentiment/run?account=`（账户宇宙）或 `?instrument=SZ002402`（单票，支持六位代码）
+
+```bash
+# 手动跑全量（持仓+最新订单）
+python overlays/sentiment_memory/run_memory.py --account live_manual_10k --lookback 90
+# 只采集入库不调 LLM
+python overlays/sentiment_memory/run_memory.py --account live_manual_10k --dry-run
+# 指定标的 / 强制闲时模型
+python overlays/sentiment_memory/run_memory.py --instruments SH600299,SZ002739 --force-llm offpeak
+```
 
 ### TA 定性否决影子线（TradingAgents 精简融入）
 
@@ -293,8 +337,8 @@ python ops/run_daily.py --stage postclose --account research_sim_100k
 ```
 
 看板页签：总览（大盘指数条 + 双线净值/累计收益/超额对比）、各账户（净值/收益vs基准/持仓数·换手/现金vs市值、
-持仓表、成交、报告）、双线对比（共同交易日收益差、成交滑点偏差）、告警/调度（任务下次运行时间 + alerts）。
-API 见 `webapp/server.py`（`/api/overview`、`/api/account/{acct}/{daily|holdings|fills|reports}`、`/api/compare`、`/api/alerts`）。
+持仓表、成交、报告）、双线对比、操作清单、**舆情跟踪**（三月走势 + 摘要报告；可输入代码分析 / 单票重跑）、
+告警/调度。API 见 `webapp/server.py`（含 `/api/sentiment/*`）。
 
 **个股行情（选中股票实际数据）**：总览的大盘指数、持仓/成交/对账表里的标的均可点击，弹出该股
 K线（红涨绿跌）+ 成交量 + 最近 OHLC 表，支持日/周/60分/15分切换。数据源（`webapp/quotes.py`）：

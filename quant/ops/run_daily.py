@@ -83,8 +83,11 @@ def evening(args, day: str) -> int:
         # 上游正常时增量脚本判定无缺口即秒退，几乎无开销。
         step("增量补数(上游滞后回退)",
              [PY, str(QUANT / "data_pipeline" / "update_incremental.py")], day, fatal=False)
-        # update_daily/增量补数 可能把日历从旧日推进；未显式指定 --day 时必须刷新，
-        # 否则会在旧日上重复出信号/调仓单（06-15 晚间曾因此用 06-11 跑了一整轮）。
+        # update_daily/增量补数 可能把日历从旧日推进；父进程若已 qlib.init，
+        # 日历仍停在首次 init，必须 reset 后再读最新日（08-03 evening 曾因此
+        # 数据已到 08-03 却刷新成 07-31，整轮在旧日上空转）。
+        C.reset_qlib()
+        # 未显式指定 --day 时必须刷新，否则会在旧日上重复出信号/调仓单。
         if args.day is None:
             day = C.latest_trading_day()
             print(f"[OK] 数据更新后刷新交易日 → {day}")
@@ -132,6 +135,29 @@ def evening(args, day: str) -> int:
         plan += ["--ta-veto"]
     if not step("生成调仓清单", plan, day):
         return 1
+
+    # 舆情硬伤筛（仅实盘）：Cursor Agent 联网检索后写 orders_exec + 清单；失败 fail-open
+    use_sent = args.sentiment_veto or bool(
+        cfg.get("execution", {}).get("use_sentiment_veto"))
+    if use_sent and args.account:
+        sent = [PY, str(QUANT / "overlays" / "sentiment_veto" / "run_sentiment.py"),
+                "--date", day, "--account", args.account]
+        if args.dry_run_sentiment:
+            sent += ["--dry-run"]
+        if not step("舆情硬伤筛", sent, day, fatal=False):
+            C.alert("WARN", "舆情硬伤筛异常；请仍按 orders/ 原单或稍后重跑", day)
+
+    # 舆情长期记忆：多源采集 + LLM 摘要 + 本地向量库（持仓/订单票持续跟踪）
+    use_mem = args.sentiment_memory or bool(
+        cfg.get("execution", {}).get("use_sentiment_memory", use_sent))
+    if use_mem and args.account:
+        mem = [PY, str(QUANT / "overlays" / "sentiment_memory" / "run_memory.py"),
+               "--date", day, "--account", args.account, "--lookback", "90"]
+        if args.dry_run_sentiment_memory:
+            mem += ["--dry-run"]
+        if not step("舆情长期记忆", mem, day, fatal=False):
+            C.alert("WARN", "舆情长期记忆步骤异常（不影响下单）", day)
+
     # 注：不在 evening 预生成 fills 模板——成交日期应为"次日执行日"而非订单日，
     # 在订单日写 fills/<订单日>.csv 会与上一日 postclose 的真实成交文件撞名。
     # 研究线由 simulate_fills 在 postclose 自动产出成交；
@@ -144,7 +170,8 @@ def evening(args, day: str) -> int:
     if mode == "simulated":
         C.alert("INFO", "evening 流水线完成，次日 postclose 将自动成交", day)
     else:
-        C.alert("INFO", "evening 流水线完成，调仓清单待次日人工执行", day)
+        hint = "（有舆情筛时优先 orders_exec/）" if use_sent else ""
+        C.alert("INFO", f"evening 流水线完成，调仓清单待次日人工执行{hint}", day)
     return 0
 
 
@@ -203,6 +230,14 @@ def main() -> int:
                    help="强制跑 TA 定性否决（账户 use_ta_veto 时也会自动跑）")
     p.add_argument("--dry-run-ta", action="store_true",
                    help="TA 否决 dry-run（不调 LLM，写全 pass）")
+    p.add_argument("--sentiment-veto", action="store_true",
+                   help="强制跑舆情硬伤筛（账户 use_sentiment_veto 时也会自动跑）")
+    p.add_argument("--dry-run-sentiment", action="store_true",
+                   help="舆情筛 dry-run（不调 Cursor Agent）")
+    p.add_argument("--sentiment-memory", action="store_true",
+                   help="强制跑舆情长期记忆（账户 use_sentiment_memory / 实盘舆情筛开启时也会跑）")
+    p.add_argument("--dry-run-sentiment-memory", action="store_true",
+                   help="舆情记忆 dry-run（只采集入库，不调 LLM）")
     p.add_argument("--config", default=None,
                    help="传给 make_trade_plan.py 的实盘配置覆盖文件")
     p.add_argument("--account", default=None,

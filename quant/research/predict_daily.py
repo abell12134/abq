@@ -43,7 +43,14 @@ def load_latest_model():
     if not recorders:
         raise RuntimeError("没有已完成的训练记录，请先运行 run_baseline.py")
     rec = max(recorders, key=lambda r: r.info["end_time"])
-    return rec.load_object("params.pkl"), rec.id
+    # recorder 的 artifact_uri 常为相对路径 file:./mlruns/...；从 quant/ 等非
+    # research 工作目录启动时会找错目录。加载前切到 research/，保证相对路径生效。
+    prev = os.getcwd()
+    try:
+        os.chdir(HERE)
+        return rec.load_object("params.pkl"), rec.id
+    finally:
+        os.chdir(prev)
 
 
 def main() -> int:

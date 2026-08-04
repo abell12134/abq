@@ -23,10 +23,15 @@ execution:
   exclude_boards: [chinext, star]
   simulated_fill: next_open
   use_ump: true
+  # 舆情硬伤筛：make_trade_plan 之后用 Cursor Agent 联网检索，否决 BUY 硬伤票；
+  # 产出 orders_exec/ + sentiment_checklist_*.md；失败 fail-open。research/shadow 不开。
+  use_sentiment_veto: true
+  # 舆情长期记忆：东财/财联社/新浪采集 + LLM 摘要 + 本地向量库；看板「舆情跟踪」页展示。
+  use_sentiment_memory: true
   risk_check: true
   lot_size: 100
   redeploy_residual_cash: true   # 小资金专用：建等权仓后用剩余现金按分数顺位补整手，压低闲置
-  note: "正式实盘：系统生成订单，次日开盘人工同花顺下单，收盘后 record_fills 回填真实成交。"
+  note: "正式实盘：系统生成订单，次日开盘人工同花顺下单，收盘后 record_fills 回填真实成交。有舆情筛时优先执行 orders_exec/。"
 
 review:
   benchmark_annual_excess: 0.093

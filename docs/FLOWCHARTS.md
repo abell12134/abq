@@ -139,13 +139,15 @@ flowchart LR
   ┌──────────────────────────────────────────┐
   │ update_daily → predict_daily             │
   │ → make_trade_plan(+UMP) → orders/        │
+  │ live: sentiment_veto → orders_exec/      │
+  │ live: sentiment_memory（采集+摘要+向量） │
   └──────────────────────────────────────────┘
          │
-         │  清单推送 / 看板展示
+         │  清单推送 / 看板展示（有舆情筛时优先 orders_exec/）
          ▼
   次日 9:30~10:00 (人工)
   ┌──────────────────────────────────────────┐
-  │ 用户在同花顺照 orders/ 下单               │
+  │ 用户在同花顺照 orders_exec/（或 orders/）下单 │
   └──────────────────────────────────────────┘
          │
          ▼
@@ -163,7 +165,7 @@ flowchart LR
   └──────────────────────────────────────────┘
 
   研究线 research_sim_100k：postclose 内自动 simulate_fills（无需人工）
-  实盘线 live_manual_10k：fills 必须由用户回填
+  实盘线 live_manual_10k：fills 必须由用户回填；舆情硬伤筛 + 长期记忆默认开启
 ```
 
 ### Mermaid
@@ -172,12 +174,17 @@ flowchart LR
 sequenceDiagram
     participant M as 定时/cron
     participant S as evening
+    participant V as sentiment_veto
+    participant Mem as sentiment_memory
     participant U as 用户
     participant F as record_fills
     participant P as postclose
     participant W as 看板
     M->>S: 22:30 数据→信号→清单
-    S->>U: orders/
+    S->>V: live 硬伤筛（可选）
+    V->>U: orders_exec/
+    S->>Mem: 舆情长期记忆（可选）
+    Mem->>W: catalog/reports
     Note over U: 次日手动下单
     U->>F: 收盘录入成交
     F->>P: 23:30 对账→净值→日报
@@ -282,12 +289,37 @@ flowchart TD
   ┌─────────────────────────────────────┐
   │  FastAPI 看板 (0.0.0.0:8000)         │
   │  · 双线净值/超额对比                  │
-  │  · 持仓/成交/报告                     │
-  │  · 个股 K 线 (东财 → qlib 回退)       │
+  │  · 持仓/成交/报告 / 操作清单          │
+  │  · 舆情跟踪（三月走势+摘要报告）       │
+  │  · 个股 K 线 (腾讯 → 东财 → qlib)     │
   ├─────────────────────────────────────┤
   │  APScheduler 内置定时                 │
-  │  22:30 evening (两账户)              │
-  │  23:30 postclose (两账户)            │
+  │  22:30 evening (多账户)              │
+  │  23:30 postclose (多账户)            │
   │  周五 23:45 双线复盘                 │
   └─────────────────────────────────────┘
 ```
+
+---
+
+## 7. 舆情长期记忆（sentiment_memory）
+
+### ASCII
+
+```
+  源                    处理                         落盘
+  ─────                 ────                         ────
+  东财 JSONP 个股新闻 ─┐
+  财联社 7x24 ─────────┼─→ 去重入库 → hashing 向量 ─→ raw/ + vectors/
+  新浪 7x24 ───────────┘         │
+                                 ▼
+                    LLM 摘要（高峰 Qwen / 闲时 DeepSeek）
+                                 │
+                                 ▼
+                    reports/{code}/{日}.json + catalog.json
+                                 │
+                                 ▼
+                    看板「舆情跟踪」/ 单票输入分析 / 重新分析本股
+```
+
+不改 `orders/`；与 `sentiment_veto`（硬伤否决 → `orders_exec/`）并列，均可 fail-open。

@@ -80,6 +80,7 @@ def account_subdirs(account: str | None) -> dict[str, Path]:
         }
     return {
         "orders": root / "orders",
+        "orders_exec": root / "orders_exec",  # 实盘舆情筛后的可执行单
         "fills": root / "fills",
         "target_position": root / "target_position",
         "nav": root / "nav",

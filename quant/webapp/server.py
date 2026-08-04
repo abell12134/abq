@@ -241,8 +241,13 @@ def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
     dirs = C.account_subdirs(account)
     execute_day = C.next_trading_day(order_day)
     orders_f = dirs["orders"] / f"{order_day}.csv"
+    # 实盘舆情筛后的可执行单优先展示（模型原单仍在 orders/）
+    exec_dir = dirs.get("orders_exec")
+    exec_f = (exec_dir / f"{order_day}.csv") if exec_dir else None
+    use_exec = bool(exec_f and exec_f.exists())
+    src_f = exec_f if use_exec else orders_f
     tp_f = dirs["target_position"] / f"{order_day}.csv"
-    orders = S.read_csv("orders", orders_f) if orders_f.exists() else pd.DataFrame(
+    orders = S.read_csv("orders", src_f) if src_f and src_f.exists() else pd.DataFrame(
         columns=["instrument", "side", "shares", "ref_price"])
     target = S.read_csv("target_position", tp_f) if tp_f.exists() else pd.DataFrame(
         columns=["instrument", "shares", "last_price", "entry_date"])
@@ -278,7 +283,8 @@ def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
             summary = (f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔；"
                        f"执行日 {exec_hint} postclose 自动模拟成交")
         else:
-            summary = (f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔；"
+            src_tag = "舆情筛后执行单" if use_exec else "模型原单"
+            summary = (f"卖出 {len(sells)} 笔 / 买入 {len(buys)} 笔（{src_tag}）；"
                        f"执行日 {exec_hint} 人工下单后 record_fills 回填")
 
     order_rows = []
@@ -537,6 +543,99 @@ def api_quote(instrument: str, klt: int = 101, n: int = 120, fqt: int = 1):
 def api_indices():
     """大盘指数：上证/中证500(基准)/创业板指。"""
     return {"indices": Q.indices()}
+
+
+# ----------------------------- 舆情长期记忆 -----------------------------
+@app.get("/api/sentiment/catalog")
+def api_sentiment_catalog():
+    """跟踪标的目录（最新报告摘要）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.sentiment_memory import store as SM  # noqa: WPS433
+    cat = SM.load_catalog()
+    instruments = list((cat.get("instruments") or {}).values())
+    instruments.sort(key=lambda x: str(x.get("latest_date") or ""), reverse=True)
+    return {
+        "updated_at": cat.get("updated_at"),
+        "peak_hour": _sentiment_peak_now(),
+        "instruments": instruments,
+    }
+
+
+@app.get("/api/sentiment/{instrument}")
+def api_sentiment_instrument(instrument: str, days: int = 90):
+    """个股舆情报告 + 近 N 日报告列表 + 向量库统计。"""
+    inst = instrument.upper()
+    if not (len(inst) >= 6 and inst[:2].isalpha() and inst[2:].isdigit()):
+        raise HTTPException(400, "标的格式应为 SH600000 / SZ000001")
+    sys.path.insert(0, str(QUANT))
+    from overlays.sentiment_memory import store as SM  # noqa: WPS433
+    report = SM.load_report(inst)
+    history = SM.list_reports(inst, limit=min(max(days, 30), 120))
+    stats = SM.vector_stats(inst)
+    return {
+        "instrument": inst,
+        "report": report,
+        "history": history,
+        "vector": stats,
+        "peak_hour": _sentiment_peak_now(),
+    }
+
+
+@app.post("/api/sentiment/run")
+def api_sentiment_run(account: str = "live_manual_10k",
+                      dry_run: bool = False,
+                      instrument: str | None = None):
+    """手动触发舆情记忆分析（后台线程）。
+
+    - 不传 instrument：分析账户持仓/订单/已跟踪标的
+    - 传 instrument：只分析该票（支持 600000 / SH600000）
+    """
+    sys.path.insert(0, str(QUANT))
+    from overlays.sentiment_memory.run_memory import normalize_instrument
+
+    inst = None
+    if instrument:
+        inst = normalize_instrument(instrument)
+        if not inst:
+            raise HTTPException(400, "标的格式应为 SH600000 / SZ000001 / 600000")
+    else:
+        _check(account)
+
+    log = LOG_DIR / f"sentiment_memory_{datetime.now():%Y-%m-%d}.log"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = [PY, str(QUANT / "overlays" / "sentiment_memory" / "run_memory.py"),
+           "--lookback", "90"]
+    if inst:
+        cmd += ["--instruments", inst]
+    else:
+        cmd += ["--account", account]
+    if dry_run:
+        cmd.append("--dry-run")
+
+    def _bg():
+        with log.open("a") as fh:
+            fh.write(f"\n=== {datetime.now():%F %T} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT)
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {
+        "ok": True,
+        "account": None if inst else account,
+        "instrument": inst,
+        "dry_run": dry_run,
+        "log": str(log),
+    }
+
+
+def _sentiment_peak_now() -> bool:
+    try:
+        sys.path.insert(0, str(QUANT))
+        from overlays.sentiment_memory.llm_router import is_peak_hour
+        return bool(is_peak_hour())
+    except Exception:
+        return False
 
 
 @app.post("/api/run/{stage}/{account}")

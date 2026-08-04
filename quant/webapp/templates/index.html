@@ -25,6 +25,7 @@
     <button class="tab" data-tab="shadow_ta_sim">TA影子线</button>
     <button class="tab" data-tab="compare">双线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
+    <button class="tab" data-tab="sentiment">舆情跟踪</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
   </nav>
 
@@ -54,6 +55,83 @@
     <section id="daily-ops" class="panel">
       <p class="panel-desc">各账户最新调仓清单：订单日 → 执行日；simulated 模式 postclose 自动成交。</p>
       <div id="daily-ops-list"></div>
+    </section>
+
+    <!-- 舆情跟踪 -->
+    <section id="sentiment" class="panel">
+      <div class="sent-toolbar">
+        <div>
+          <h2 class="sent-title">舆情跟踪</h2>
+          <p class="panel-desc">近三月走势 + 多源舆情摘要（东财 / 财联社 / 新浪）· 本地向量长期记忆</p>
+        </div>
+        <div class="sent-actions">
+          <span id="sent-peak" class="badge empty">时段 —</span>
+          <span id="sent-updated" class="sent-updated">—</span>
+          <button id="sent-refresh" type="button">刷新</button>
+          <button id="sent-run" type="button" class="btn-secondary">重新分析</button>
+        </div>
+      </div>
+      <div class="sent-layout">
+        <aside class="sent-side">
+          <div class="sent-side-head">跟踪标的</div>
+          <div class="sent-lookup">
+            <input id="sent-code" type="text" placeholder="代码 600519 / SH600519"
+                   maxlength="12" autocomplete="off" />
+            <button id="sent-analyze-one" type="button">分析</button>
+          </div>
+          <div id="sent-list" class="sent-list"></div>
+        </aside>
+        <div class="sent-main">
+          <div id="sent-empty" class="empty">选择左侧标的，或先点击「重新分析」生成报告。</div>
+          <div id="sent-detail" class="hidden">
+            <div class="sent-hero">
+              <div>
+                <div id="sent-name" class="sent-name">—</div>
+                <div id="sent-headline" class="sent-headline">—</div>
+              </div>
+              <div class="sent-hero-right">
+                <button id="sent-rerun-one" type="button" class="btn-secondary">重新分析本股</button>
+                <div id="sent-score-box" class="sent-score-box">
+                  <div class="label">情绪分</div>
+                  <div id="sent-score" class="value">—</div>
+                  <div id="sent-stance" class="sub">—</div>
+                </div>
+              </div>
+            </div>
+            <div id="sent-tags" class="sent-tags"></div>
+            <div class="chart-box sent-chart-box">
+              <h3>近三月走势（日线）</h3>
+              <canvas id="sentPriceChart"></canvas>
+            </div>
+            <div class="sent-grid">
+              <div class="sent-block">
+                <h3>分析摘要</h3>
+                <p id="sent-summary" class="sent-summary">—</p>
+                <h3>跟踪要点</h3>
+                <ul id="sent-watch" class="sent-ul"></ul>
+              </div>
+              <div class="sent-block">
+                <h3>关键事件</h3>
+                <div id="sent-events" class="table-wrap"></div>
+              </div>
+            </div>
+            <div class="sent-grid">
+              <div class="sent-block">
+                <h3>近期舆情条目</h3>
+                <div id="sent-news" class="table-wrap"></div>
+              </div>
+              <div class="sent-block">
+                <h3>历史报告 · 情绪轨迹</h3>
+                <div class="chart-box" style="margin:0;border:0;padding:0;background:transparent">
+                  <canvas id="sentHistChart" height="140"></canvas>
+                </div>
+                <div id="sent-hist" class="table-wrap" style="margin-top:10px"></div>
+              </div>
+            </div>
+            <div class="sent-meta" id="sent-meta"></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 告警/调度 -->
