@@ -561,6 +561,14 @@ def api_sentiment_catalog():
     }
 
 
+@app.get("/api/sentiment/job")
+def api_sentiment_job():
+    """当前/最近一次舆情分析任务进度（供进度条与刷新恢复）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.sentiment_memory import job as SJ  # noqa: WPS433
+    return SJ.read_job()
+
+
 @app.get("/api/sentiment/{instrument}")
 def api_sentiment_instrument(instrument: str, days: int = 90):
     """个股舆情报告 + 近 N 日报告列表 + 向量库统计。"""
@@ -592,6 +600,7 @@ def api_sentiment_run(account: str = "live_manual_10k",
     """
     sys.path.insert(0, str(QUANT))
     from overlays.sentiment_memory.run_memory import normalize_instrument
+    from overlays.sentiment_memory import job as SJ  # noqa: WPS433
 
     inst = None
     if instrument:
@@ -600,6 +609,20 @@ def api_sentiment_run(account: str = "live_manual_10k",
             raise HTTPException(400, "标的格式应为 SH600000 / SZ000001 / 600000")
     else:
         _check(account)
+
+    running = SJ.read_job()
+    if running.get("status") == "running":
+        # 允许查看已有任务；若重复点击，返回当前任务避免叠加混乱
+        return {
+            "ok": True,
+            "queued": False,
+            "busy": True,
+            "job": running,
+            "instrument": running.get("instrument"),
+            "account": running.get("account"),
+            "dry_run": bool(running.get("dry_run")),
+            "log": str(LOG_DIR / f"sentiment_memory_{datetime.now():%Y-%m-%d}.log"),
+        }
 
     log = LOG_DIR / f"sentiment_memory_{datetime.now():%Y-%m-%d}.log"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -612,20 +635,47 @@ def api_sentiment_run(account: str = "live_manual_10k",
     if dry_run:
         cmd.append("--dry-run")
 
+    job = SJ.start_job(instrument=inst, account=None if inst else account, dry_run=dry_run)
+    if inst:
+        SJ.write_job({"total": 1, "universe": [inst], "message": f"采集 {inst}…", "pct": 8})
+
     def _bg():
         with log.open("a") as fh:
             fh.write(f"\n=== {datetime.now():%F %T} {' '.join(cmd[1:])} ===\n")
             fh.flush()
-            subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT)
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                    env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1"},
+                )
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    fh.write(line)
+                    fh.flush()
+                    try:
+                        SJ.update_from_line(line)
+                    except Exception:
+                        pass
+                rc = proc.wait()
+                SJ.finish_job(ok=(rc == 0),
+                              message="分析完成" if rc == 0 else f"分析退出码 {rc}")
+            except Exception as e:  # noqa: BLE001
+                fh.write(f"[job-error] {e}\n")
+                SJ.finish_job(ok=False, message=str(e)[:200])
 
     import threading
     threading.Thread(target=_bg, daemon=True).start()
     return {
         "ok": True,
+        "queued": True,
+        "busy": False,
+        "job": SJ.read_job(),
         "account": None if inst else account,
         "instrument": inst,
         "dry_run": dry_run,
         "log": str(log),
+        "job_id": job.get("id"),
     }
 
 

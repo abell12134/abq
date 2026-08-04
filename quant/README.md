@@ -204,14 +204,16 @@ python overlays/sentiment_veto/run_sentiment.py --date 2026-08-03 --account live
 
 ### 舆情长期记忆（多源采集 + LLM 摘要 + 向量库）
 
-对持仓/订单标的持续跟踪近 30–90 日公开舆情，写入本地向量记忆，看板「舆情跟踪」页展示近三月走势与分析报告。设计背景见根目录《设计实现方案》§9.8。
+对持仓/订单标的持续跟踪**近 90 日（约三个月）**公开舆情，写入本地向量记忆，看板「舆情跟踪」页展示同期走势与分析报告。设计背景见根目录《设计实现方案》§9.8。
 
-- 数据源：东方财富 JSONP 个股新闻；财联社 / 新浪 7x24（AKShare + HTTP 回退；滚动入库累积长期记忆）
+- 数据源：东方财富 JSONP 个股新闻；**东财/巨潮公司公告（含年报半年报季报、业绩预告/快报）**；
+  财联社 / 新浪 / 东财要闻中的**政策宏观**快讯（关键词筛选）；滚动入库累积长期记忆
 - 模型路由：北京时间高峰（9–12 / 14–18）优先自部署 `LLM_PEAK_*`（Qwen，默认关 thinking）；
   闲时或失败回落 `LLM_OFFPEAK_MODEL` / `LLM_MODEL`（DeepSeek）
 - 开关：`execution.use_sentiment_memory: true`（live 默认开；evening 在硬伤筛之后跑；失败不阻断下单）
+- 回看：`--lookback` 默认 **90**（允许 30–90）；看板 API / evening 均按 90 日触发
 - 产出：`data/overlays/sentiment_memory/{raw,vectors,reports,catalog.json}`
-- 看板页：左侧跟踪列表 + 代码输入分析；详情含近三月走势、情绪分、摘要、关键事件、舆情条目；
+- 看板页：左侧跟踪列表 + 代码输入分析；详情含近 90 天走势、情绪分、摘要、关键事件、舆情条目；
   「重新分析本股」只重跑当前标的
 - API：`GET /api/sentiment/catalog`、`GET /api/sentiment/{instrument}`、
   `POST /api/sentiment/run?account=`（账户宇宙）或 `?instrument=SZ002402`（单票，支持六位代码）

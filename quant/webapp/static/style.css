@@ -109,6 +109,31 @@ td.clickable:hover { text-decoration: underline; }
 .sent-title { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: .02em; }
 .sent-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .sent-updated { color: var(--muted); font-size: 12px; }
+.sent-progress {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 16px; margin-bottom: 14px;
+}
+.sent-progress.hidden { display: none; }
+.sent-progress-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px; font-size: 13px;
+}
+#sent-progress-label { font-weight: 600; }
+#sent-progress-pct { color: var(--accent); font-variant-numeric: tabular-nums; }
+.sent-progress-track {
+  height: 8px; background: #0f1419; border-radius: 999px; overflow: hidden;
+  border: 1px solid var(--line);
+}
+.sent-progress-bar {
+  height: 100%; width: 0%; background: var(--accent);
+  border-radius: 999px; transition: width .35s ease;
+}
+.sent-progress-msg {
+  margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sent-progress.done .sent-progress-bar { background: var(--green); }
+.sent-progress.error .sent-progress-bar { background: var(--red); }
 .sent-layout {
   display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start;
 }

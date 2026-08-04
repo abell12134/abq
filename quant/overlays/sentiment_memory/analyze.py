@@ -44,7 +44,7 @@ def analyze_instrument(
         {**n, "instrument": instrument} for n in news
     ])
 
-    query = f"{instrument} {name} 风险 业绩 立案 诉讼 股东"
+    query = f"{instrument} {name} 财报 业绩预告 年报 半年报 政策 监管 风险 立案 诉讼 股东"
     memories = store.search_memory(instrument, query, top_k=8)
 
     if dry_run:
@@ -121,6 +121,8 @@ def analyze_instrument(
             "score": score,
             "headline": str(parsed.get("headline") or "")[:80],
             "summary": str(parsed.get("summary") or "")[:600],
+            "fundamentals": str(parsed.get("fundamentals") or "")[:200],
+            "policy_impact": str(parsed.get("policy_impact") or "")[:200],
             "risk_tags": [str(t) for t in (parsed.get("risk_tags") or [])][:8],
             "key_events": [
                 {
@@ -134,12 +136,21 @@ def analyze_instrument(
             "watchpoints": [str(w) for w in (parsed.get("watchpoints") or [])][:5],
             "stance": str(parsed.get("stance") or "可继续跟踪")[:40],
             "news_count": len(news),
+            "announcement_count": sum(
+                1 for n in news
+                if str(n.get("source", "")).startswith("ann_")
+                or str(n.get("kind", "")) in {"公司公告", "财报公告"}),
+            "policy_count": sum(
+                1 for n in news
+                if str(n.get("source", "")).startswith("policy_")
+                or str(n.get("kind", "")) == "政策宏观"),
             "memories_used": len(memories),
             "meta": meta,
             "news_preview": [
                 {"source": n.get("source"), "published": n.get("published"),
-                 "title": n.get("title"), "url": n.get("url")}
-                for n in news[:20]
+                 "title": n.get("title"), "url": n.get("url"),
+                 "kind": n.get("kind")}
+                for n in news[:30]
             ],
             "memories": memories[:6],
         }
@@ -150,7 +161,10 @@ def analyze_instrument(
         "source": "llm_report",
         "instrument": instrument,
         "title": report.get("headline") or f"{instrument} 舆情报告 {day}",
-        "content": f"{report.get('summary','')} {' '.join(report.get('risk_tags') or [])}",
+        "content": (
+            f"{report.get('summary','')} {report.get('fundamentals','')} "
+            f"{report.get('policy_impact','')} {' '.join(report.get('risk_tags') or [])}"
+        ),
         "published": f"{day} 00:00:00",
         "url": "",
     }])

@@ -191,7 +191,8 @@ def main() -> int:
     p.add_argument("--account", default="live_manual_10k")
     p.add_argument("--instruments", default=None,
                    help="逗号分隔代码，如 SH600299,SZ002739")
-    p.add_argument("--lookback", type=int, default=90, help="回看天数 30–90")
+    p.add_argument("--lookback", type=int, default=90,
+                   help="回看天数，默认 90（约三个月）；允许 30–90")
     p.add_argument("--dry-run", action="store_true", help="只采集入库，不调 LLM")
     p.add_argument("--ingest-only", action="store_true", help="只拉全局电报")
     p.add_argument("--force-llm", choices=["peak", "offpeak"], default=None)

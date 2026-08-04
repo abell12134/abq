@@ -425,6 +425,7 @@ function sentLabel(s) {
 }
 
 async function loadSentiment(keepSelection = true) {
+  await resumeSentJobIfAny();
   const prev = keepSelection ? sentInst : null;
   const cat = await getJSON("/api/sentiment/catalog");
   const peakEl = document.getElementById("sent-peak");
@@ -487,6 +488,8 @@ async function selectSentiment(instrument) {
   const tags = document.getElementById("sent-tags");
   tags.innerHTML = (r.risk_tags || []).map(t => `<span class="tag">${t}</span>`).join("");
   document.getElementById("sent-summary").textContent = r.summary || "—";
+  document.getElementById("sent-fundamentals").textContent = r.fundamentals || "—";
+  document.getElementById("sent-policy").textContent = r.policy_impact || "—";
   const watch = document.getElementById("sent-watch");
   watch.innerHTML = (r.watchpoints || []).map(w => `<li>${w}</li>`).join("")
     || "<li class='empty'>暂无</li>";
@@ -545,11 +548,12 @@ async function selectSentiment(instrument) {
 
   const meta = r.meta || {};
   document.getElementById("sent-meta").textContent =
-    `模型 ${meta.model || "—"}（${meta.endpoint || "—"}） · 舆情 ${r.news_count ?? "—"} 条`
+    `模型 ${meta.model || "—"}（${meta.endpoint || "—"}） · 条目 ${r.news_count ?? "—"}`
+    + `（公告 ${r.announcement_count ?? "—"} / 政策 ${r.policy_count ?? "—"}）`
     + ` · 向量记忆 ${data.vector?.count ?? r.vector_count ?? "—"} 条`
     + ` · 报告日 ${r.date || "—"}`;
 
-  // 近三月价格
+  // 近 90 天价格（约 65 个交易日≈三个月；取 70 根日 K 略留余量）
   try {
     const q = await getJSON(`/api/quote/${instrument}?klt=101&n=70&_=${Date.now()}`);
     const canvas = document.getElementById("sentPriceChart");
@@ -597,6 +601,112 @@ function normalizeSentCode(raw) {
   return null;
 }
 
+const SENT_JOB_KEY = "quant_sentiment_job";
+let sentJobTimer = null;
+
+function saveSentJobLocal(job) {
+  try {
+    if (!job || job.status === "idle") localStorage.removeItem(SENT_JOB_KEY);
+    else localStorage.setItem(SENT_JOB_KEY, JSON.stringify(job));
+  } catch (_) { /* ignore */ }
+}
+
+function renderSentProgress(job) {
+  const box = document.getElementById("sent-progress");
+  if (!box || !job) return;
+  const st = job.status || "idle";
+  if (st === "idle") {
+    box.classList.add("hidden");
+    box.classList.remove("done", "error");
+    return;
+  }
+  box.classList.remove("hidden");
+  box.classList.toggle("done", st === "done");
+  box.classList.toggle("error", st === "error");
+  const pct = Math.max(0, Math.min(100, Number(job.pct) || 0));
+  const bar = document.getElementById("sent-progress-bar");
+  const pctEl = document.getElementById("sent-progress-pct");
+  const label = document.getElementById("sent-progress-label");
+  const msg = document.getElementById("sent-progress-msg");
+  if (bar) bar.style.width = pct + "%";
+  if (pctEl) pctEl.textContent = pct + "%";
+  const target = job.instrument || (job.account ? `账户 ${job.account}` : "跟踪标的");
+  if (label) {
+    if (st === "running") label.textContent = `分析进行中 · ${target}`;
+    else if (st === "done") label.textContent = `分析完成 · ${target}`;
+    else if (st === "error") label.textContent = `分析失败 · ${target}`;
+    else label.textContent = "分析状态";
+  }
+  if (msg) {
+    const extra = job.done_count != null && job.total
+      ? `（${job.done_count}/${job.total}）` : "";
+    msg.textContent = (job.message || job.last_line || "—") + extra;
+  }
+}
+
+function stopSentJobPoll() {
+  if (sentJobTimer) { clearInterval(sentJobTimer); sentJobTimer = null; }
+}
+
+async function pollSentJobOnce() {
+  try {
+    const job = await getJSON("/api/sentiment/job");
+    renderSentProgress(job);
+    saveSentJobLocal(job);
+    if (job.status === "done" || job.status === "error") {
+      stopSentJobPoll();
+      // 完成后刷新列表/详情
+      try {
+        await loadSentiment(true);
+        if (job.instrument) await selectSentiment(job.instrument);
+      } catch (_) { /* ignore */ }
+      // 完成态保留展示一会儿
+      setTimeout(() => {
+        const box = document.getElementById("sent-progress");
+        if (box && !box.classList.contains("hidden") && job.status !== "running") {
+          // 保留完成条，用户可手动刷新后仍能看到最近结果；不自动隐藏
+        }
+      }, 800);
+      return job;
+    }
+    if (job.status !== "running") stopSentJobPoll();
+    return job;
+  } catch (e) {
+    console.warn("job poll", e);
+    return null;
+  }
+}
+
+function startSentJobPoll() {
+  stopSentJobPoll();
+  pollSentJobOnce();
+  sentJobTimer = setInterval(pollSentJobOnce, 2500);
+}
+
+async function resumeSentJobIfAny() {
+  // 优先服务端状态（刷新后仍准确）
+  try {
+    const job = await getJSON("/api/sentiment/job");
+    if (job && (job.status === "running" || job.status === "done" || job.status === "error")) {
+      renderSentProgress(job);
+      saveSentJobLocal(job);
+      if (job.status === "running") startSentJobPoll();
+      return;
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const raw = localStorage.getItem(SENT_JOB_KEY);
+    if (!raw) return;
+    const job = JSON.parse(raw);
+    if (job?.status === "running") {
+      renderSentProgress(job);
+      startSentJobPoll();
+    } else if (job) {
+      renderSentProgress(job);
+    }
+  } catch (_) { /* ignore */ }
+}
+
 async function triggerSentimentRun({ instrument = null, btn = null, label = "重新分析" } = {}) {
   if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
   let triggered = false;
@@ -610,51 +720,32 @@ async function triggerSentimentRun({ instrument = null, btn = null, label = "重
     let body = {};
     try { body = JSON.parse(raw); } catch (_) { /* ignore */ }
     triggered = true;
-    const target = body.instrument || instrument;
-    if (target) sentInst = target;
-    const startedAt = Date.now();
-    let prevUpdated = null;
-    try {
-      const cat0 = await getJSON("/api/sentiment/catalog");
-      prevUpdated = cat0.updated_at || null;
-    } catch (_) { /* ignore */ }
-    const maxMs = target ? 420000 : 240000;
-    for (let i = 0; i < 90; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-      try {
-        if (target) {
-          const d = await getJSON(`/api/sentiment/${target}`);
-          const cat = await getJSON("/api/sentiment/catalog");
-          if (d.report && (!prevUpdated || cat.updated_at !== prevUpdated || i >= 2)) {
-            await loadSentiment(true);
-            if (sentInst === target) {
-              // 报告 saved_at 晚于触发，或已有报告则展示并在有更新后结束
-              if (cat.updated_at !== prevUpdated || i >= 6) break;
-            }
-          }
-        } else {
-          const cat = await getJSON("/api/sentiment/catalog");
-          if (cat.instruments?.length && cat.updated_at && cat.updated_at !== prevUpdated) {
-            await loadSentiment(true);
-            break;
-          }
-          if (i === 3 || i === 11) await loadSentiment(true);
-        }
-      } catch (pollErr) {
-        console.warn("sentiment poll", pollErr);
-      }
-      if (Date.now() - startedAt > maxMs) break;
+    const job = body.job || {
+      status: "running", pct: 5,
+      instrument: body.instrument || instrument,
+      account: body.account,
+      message: body.busy ? "已有任务在跑，接入进度…" : "任务已启动…",
+    };
+    if (body.busy) {
+      // 不重复排队，直接跟已有任务
     }
-    try {
-      await loadSentiment(true);
-      if (target) await selectSentiment(target);
-    } catch (showErr) {
-      console.warn("sentiment show", showErr);
+    const target = job.instrument || body.instrument || instrument;
+    if (target) sentInst = target;
+    renderSentProgress(job);
+    saveSentJobLocal(job);
+    startSentJobPoll();
+    // 等待任务结束（最长约 8 分钟）
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 480000) {
+      await new Promise(r => setTimeout(r, 2500));
+      const cur = await pollSentJobOnce();
+      if (!cur || cur.status === "done" || cur.status === "error" || cur.status === "idle") break;
     }
   } catch (e) {
     console.error(e);
     if (!triggered) alert("触发分析失败：" + (e.message || e));
-    else alert("分析已触发，但刷新结果时出错：" + (e.message || e));
+    else alert("分析进度异常：" + (e.message || e));
+    renderSentProgress({ status: "error", pct: 100, message: String(e.message || e), instrument });
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = label; }
   }
