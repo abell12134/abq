@@ -1,9 +1,9 @@
 account:
   name: live_manual_10k
-  # 正式实盘（2026-06-22 切换）：真实资金 12000，系统出单，次日开盘人工在同花顺下单，
-  # 收盘后用 record_fills 回填真实成交。如需回退试运行，把 mode 改回 simulated 并重置账户。
+  # 正式实盘（2026-06-22 切换）：真实资金 12000→20000（2026-08-04 追加注资），
+  # 系统出单，次日开盘人工在同花顺下单，收盘后用 record_fills 回填真实成交。
   mode: manual
-  initial_capital: 12000
+  initial_capital: 20000
   target_min_positions: 5
   target_max_positions: 10
   review_min_days: 20

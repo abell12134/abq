@@ -32,6 +32,22 @@
 
 ---
 
+## Web 看板预览
+
+在线地址：**[http://43.159.136.65:8000](http://43.159.136.65:8000)**（FastAPI + 内置定时，收盘后自动更新）
+
+| 总览 | 舆情跟踪 | 操作清单 |
+|:---:|:---:|:---:|
+| 多账户净值、累计收益、持仓数与现金占比 | 多源舆情 + LLM 摘要 + 近 90 日走势 | 调仓指令（先卖后买）与目标持仓 |
+
+![总览 — 多账户净值与收益对比](img/pic1.png)
+
+![舆情跟踪 — 持仓/订单标的持续分析](img/pic2.png)
+
+![操作清单 — 次日调仓指令与目标持仓](img/pic3.png)
+
+---
+
 ## 流程图
 
 > 部分 Markdown 预览**不支持 Mermaid**，只能看到代码块。  
@@ -203,7 +219,7 @@ cp configs/secret.env.example configs/secret.env   # 填入 LLM_API_KEY 等，�
 
 # 启动常驻看板（FastAPI + 内置 APScheduler）
 bash webapp/serve.sh start 8000
-# 浏览器打开 http://<host>:8000
+# 浏览器打开 http://43.159.136.65:8000（或本机 http://127.0.0.1:8000）
 ```
 
 账户配置见 `configs/accounts/`：
