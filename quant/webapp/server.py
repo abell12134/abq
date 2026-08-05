@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -38,6 +40,7 @@ import quotes as Q  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 LOG_DIR = QUANT / "data" / "logs"
+VISIT_LOG = LOG_DIR / "site_visits.jsonl"
 PY = sys.executable
 RUN_DAILY = QUANT / "ops" / "run_daily.py"
 REVIEW = QUANT / "ops" / "review_accounts.py"
@@ -128,6 +131,45 @@ def full_access(request: Request) -> bool:
 def _require_full_access(request: Request) -> None:
     if not full_access(request):
         raise HTTPException(403, "演示模式：该操作已禁用（仅白名单 IP 可用）")
+
+
+def _log_visit(request: Request, path: str = "/") -> None:
+    """记录首页访问（IP + 时间），写入 data/logs/site_visits.jsonl（已 gitignore）。"""
+    ip = _client_ip(request)
+    if not ip:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    row = {
+        "time": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+        "ip": ip,
+        "path": path,
+        "full_access": full_access(request),
+        "ua": (request.headers.get("user-agent") or "")[:200],
+    }
+    with VISIT_LOG.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _visit_stats(limit: int = 100) -> dict:
+    if not VISIT_LOG.exists():
+        return {"total": 0, "unique_ips": 0, "by_ip": [], "recent": []}
+    entries: list[dict] = []
+    for line in VISIT_LOG.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    ips = [str(e.get("ip") or "") for e in entries if e.get("ip")]
+    recent = list(reversed(entries[-limit:]))
+    return {
+        "total": len(entries),
+        "unique_ips": len(set(ips)),
+        "by_ip": [{"ip": ip, "count": c} for ip, c in Counter(ips).most_common(30)],
+        "recent": recent,
+    }
 
 
 # ----------------------------- 数据读取 -----------------------------
@@ -503,6 +545,7 @@ def _asset_ver() -> int:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    _log_visit(request, "/")
     resp = templates.TemplateResponse(
         request, "index.html", {"accounts": ACCOUNTS, "ver": _asset_ver()})
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -520,6 +563,14 @@ def api_access(request: Request):
         # 演示模式下返回 IP，便于管理员复制到 configs/webapp.local.yaml
         "client_ip": ip if not fa else None,
     }
+
+
+@app.get("/api/visits")
+def api_visits(request: Request, limit: int = 100):
+    """站点访问统计（仅白名单 IP 可查看）。"""
+    _require_full_access(request)
+    lim = min(max(int(limit), 1), 500)
+    return _visit_stats(lim)
 
 
 @app.get("/api/overview")

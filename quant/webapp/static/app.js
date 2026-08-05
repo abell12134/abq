@@ -83,6 +83,10 @@ function applyAccessUI(access = {}) {
     codeInput.disabled = demo;
     codeInput.placeholder = demo ? "演示模式：仅可浏览已有报告" : "代码 600519 / SH600519";
   }
+  const visitTitle = document.getElementById("visit-stats-title");
+  const visitBox = document.getElementById("visit-stats");
+  if (visitTitle) visitTitle.classList.toggle("hidden", demo);
+  if (visitBox) visitBox.classList.toggle("hidden", demo);
 }
 
 // ----------------- 总览 -----------------
@@ -434,6 +438,36 @@ async function loadAlerts() {
   let h = "<table><thead><tr><th>任务</th><th>下次运行</th></tr></thead><tbody>";
   for (const j of ov.jobs) h += `<tr><td>${j.id}</td><td>${j.next_run || "-"}</td></tr>`;
   document.getElementById("jobs").innerHTML = h + "</tbody></table>";
+
+  const visitBox = document.getElementById("visit-stats");
+  if (fullAccess && visitBox) {
+    try {
+      const v = await getJSON("/api/visits?limit=50");
+      let vh = `<p class="panel-desc">累计 ${v.total} 次 · 独立 IP ${v.unique_ips} 个（打开首页即记一条）</p>`;
+      if (v.by_ip?.length) {
+        vh += "<table><thead><tr><th>IP</th><th>次数</th></tr></thead><tbody>";
+        for (const row of v.by_ip) {
+          vh += `<tr><td>${row.ip}</td><td>${row.count}</td></tr>`;
+        }
+        vh += "</tbody></table><h4 style='margin:16px 0 8px'>最近访问</h4>";
+      }
+      if (v.recent?.length) {
+        vh += "<table><thead><tr><th>时间</th><th>IP</th><th>模式</th></tr></thead><tbody>";
+        for (const row of v.recent) {
+          const mode = row.full_access ? "全功能" : "演示";
+          vh += `<tr><td>${row.time || "-"}</td><td>${row.ip || "-"}</td><td>${mode}</td></tr>`;
+        }
+        vh += "</tbody></table>";
+      } else if (!v.total) {
+        vh += '<div class="empty">尚无访问记录</div>';
+      }
+      visitBox.innerHTML = vh;
+    } catch (e) {
+      visitBox.innerHTML = `<div class="empty">访问统计加载失败</div>`;
+    }
+  } else if (visitBox) {
+    visitBox.innerHTML = "";
+  }
 
   const al = await getJSON("/api/alerts");
   if (!al.alerts.length) { document.getElementById("alert-list").innerHTML = '<div class="empty">暂无告警</div>'; return; }
