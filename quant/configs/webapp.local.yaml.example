@@ -1,0 +1,9 @@
+# 看板本地配置 — 复制为 webapp.local.yaml 后填入，切勿提交 git
+# cp configs/webapp.local.yaml.example configs/webapp.local.yaml
+#
+# 名单内 IP = 完整功能（分析/刷新）；留空 = 全员只读演示。
+# 127.0.0.1 / ::1 始终本机全权限。支持 CIDR（如移动网 223.x.x.0/24）。
+
+ip_whitelist:
+  # - 223.104.124.0/24
+  # - 你的.公网.IP

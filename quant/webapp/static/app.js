@@ -51,6 +51,40 @@ const baseOpts = {
             y: { ticks: { color: "#8b98a9" }, grid: { color: "#2a344133" } } },
 };
 
+let fullAccess = false;
+
+async function loadAccess() {
+  try {
+    const a = await getJSON("/api/access");
+    fullAccess = !!a.full_access;
+    applyAccessUI(a);
+  } catch (_) {
+    fullAccess = false;
+    applyAccessUI({ demo_mode: true });
+  }
+}
+
+function applyAccessUI(access = {}) {
+  const demo = !fullAccess;
+  const badge = document.getElementById("demo-badge");
+  if (badge) {
+    badge.classList.toggle("hidden", !demo);
+    if (demo && access.client_ip) {
+      badge.title = `当前 IP ${access.client_ip}，可加入 configs/webapp.local.yaml`;
+    }
+  }
+  const writeBtns = ["refresh", "sent-refresh", "sent-run", "sent-analyze-one", "sent-rerun-one"];
+  writeBtns.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("hidden", demo);
+  });
+  const codeInput = document.getElementById("sent-code");
+  if (codeInput) {
+    codeInput.disabled = demo;
+    codeInput.placeholder = demo ? "演示模式：仅可浏览已有报告" : "代码 600519 / SH600519";
+  }
+}
+
 // ----------------- 总览 -----------------
 async function loadOverview() {
   loadIndices();  // 异步加载大盘，行情源慢/被限不阻塞主面板
@@ -708,6 +742,10 @@ async function resumeSentJobIfAny() {
 }
 
 async function triggerSentimentRun({ instrument = null, btn = null, label = "重新分析" } = {}) {
+  if (!fullAccess) {
+    alert("演示模式：分析功能仅对白名单 IP 开放");
+    return;
+  }
   if (btn) { btn.disabled = true; btn.textContent = "分析中…"; }
   let triggered = false;
   try {
@@ -803,10 +841,15 @@ document.querySelectorAll(".tab").forEach(t => {
     loadTab(t.dataset.tab);
   };
 });
-document.getElementById("refresh").onclick = () => {
+document.getElementById("refresh")?.addEventListener("click", () => {
+  if (!fullAccess) return;
   loadTab(document.querySelector(".tab.active").dataset.tab);
-};
-loadOverview();
+});
+
+(async () => {
+  await loadAccess();
+  loadOverview();
+})();
 setInterval(() => {
   const tab = document.querySelector(".tab.active").dataset.tab;
   if (tab === "overview") loadOverview();

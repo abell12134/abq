@@ -58,7 +58,76 @@ ACCOUNT_LABELS = {
 }
 TZ = "Asia/Shanghai"
 
+_LOCALHOST = frozenset({"127.0.0.1", "::1", "localhost"})
+
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+
+
+def _client_ip(request: Request) -> str:
+    """客户端 IP；Nginx 反代时需配置 X-Forwarded-For / X-Real-IP。"""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real = request.headers.get("x-real-ip")
+    if real:
+        return real.strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return ""
+
+
+_HERE_CFG = QUANT / "configs"
+_WEBAPP_LOCAL = _HERE_CFG / "webapp.local.yaml"
+
+
+def _webapp_local() -> dict:
+    if not _WEBAPP_LOCAL.exists():
+        return {}
+    import yaml
+    return yaml.safe_load(_WEBAPP_LOCAL.read_text()) or {}
+
+
+def _ip_whitelist() -> list[str]:
+    loc = _webapp_local().get("ip_whitelist")
+    raw = loc if loc is not None else (C.CFG.get("webapp", {}) or {}).get("ip_whitelist") or []
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def _ip_allowed(ip: str, wl: list[str]) -> bool:
+    """精确匹配或 CIDR（如 223.104.124.0/24，适配移动网 IP 小幅变动）。"""
+    if not ip or not wl:
+        return False
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip in wl
+    for entry in wl:
+        if "/" in entry:
+            try:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            except ValueError:
+                continue
+        elif ip == entry:
+            return True
+    return False
+
+
+def full_access(request: Request) -> bool:
+    """白名单或本机：完整功能；其余只读演示。"""
+    ip = _client_ip(request)
+    if ip in _LOCALHOST:
+        return True
+    wl = _ip_whitelist()
+    if not wl:
+        return False
+    return _ip_allowed(ip, wl)
+
+
+def _require_full_access(request: Request) -> None:
+    if not full_access(request):
+        raise HTTPException(403, "演示模式：该操作已禁用（仅白名单 IP 可用）")
 
 
 # ----------------------------- 数据读取 -----------------------------
@@ -440,6 +509,19 @@ def index(request: Request):
     return resp
 
 
+@app.get("/api/access")
+def api_access(request: Request):
+    """访问模式：白名单内 full_access，其余 demo_mode（前端据此隐藏分析/刷新）。"""
+    fa = full_access(request)
+    ip = _client_ip(request)
+    return {
+        "full_access": fa,
+        "demo_mode": not fa,
+        # 演示模式下返回 IP，便于管理员复制到 configs/webapp.local.yaml
+        "client_ip": ip if not fa else None,
+    }
+
+
 @app.get("/api/overview")
 def api_overview():
     return overview()
@@ -590,7 +672,8 @@ def api_sentiment_instrument(instrument: str, days: int = 90):
 
 
 @app.post("/api/sentiment/run")
-def api_sentiment_run(account: str = "live_manual_10k",
+def api_sentiment_run(request: Request,
+                      account: str = "live_manual_10k",
                       dry_run: bool = False,
                       instrument: str | None = None):
     """手动触发舆情记忆分析（后台线程）。
@@ -598,6 +681,7 @@ def api_sentiment_run(account: str = "live_manual_10k",
     - 不传 instrument：分析账户持仓/订单/已跟踪标的
     - 传 instrument：只分析该票（支持 600000 / SH600000）
     """
+    _require_full_access(request)
     sys.path.insert(0, str(QUANT))
     from overlays.sentiment_memory.run_memory import normalize_instrument
     from overlays.sentiment_memory import job as SJ  # noqa: WPS433
@@ -689,8 +773,9 @@ def _sentiment_peak_now() -> bool:
 
 
 @app.post("/api/run/{stage}/{account}")
-def api_run(stage: str, account: str):
+def api_run(request: Request, stage: str, account: str):
     """手动触发一次 evening/postclose（用于演示或补跑）。"""
+    _require_full_access(request)
     _check(account)
     if stage not in ("evening", "postclose"):
         raise HTTPException(400, "stage 必须是 evening/postclose")

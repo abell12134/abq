@@ -43,3 +43,8 @@ risk:
   # 避免宇宙/模型切换、停复牌、缺口导致的净值重算误触发熔断（见 2026-07-15 事故）。
   daily_loss_halt_floor: 0.11
   position_deviation_alert: 0.02
+
+# Web 看板访问控制（webapp/server.py）
+# IP 白名单见 configs/webapp.local.yaml（gitignore，复制 webapp.local.yaml.example）
+# 留空 = 全员只读演示；127.0.0.1 / ::1 始终本机全权限
+webapp: {}

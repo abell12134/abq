@@ -24,6 +24,8 @@ TradingAgents/
 *.key
 **/secret.env
 !**/secret.env.example
+**/webapp.local.yaml
+!**/webapp.local.yaml.example
 
 # --- Python ---
 __pycache__/

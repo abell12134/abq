@@ -210,3 +210,4 @@ td.clickable:hover { text-decoration: underline; }
 .hidden { display: none !important; }
 .badge.peak { background: #d2992233; color: #e3b341; }
 .badge.offpeak { background: #1f6feb33; color: #6cb6ff; }
+.badge.demo { background: #484f5844; color: #8b98a9; border: 1px solid #484f58; }

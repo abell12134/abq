@@ -1,5 +1,6 @@
 # 凭证：绝不入库
 configs/secret.env
+configs/webapp.local.yaml
 *.key
 
 # 运行时数据（信号、成交、净值、报告、账户账本等）
