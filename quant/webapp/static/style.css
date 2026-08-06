@@ -211,3 +211,128 @@ td.clickable:hover { text-decoration: underline; }
 .badge.peak { background: #d2992233; color: #e3b341; }
 .badge.offpeak { background: #1f6feb33; color: #6cb6ff; }
 .badge.demo { background: #484f5844; color: #8b98a9; border: 1px solid #484f58; }
+
+/* -------- 短线猎手 -------- */
+.muted-tag { color: var(--muted); font-size: 12px; font-weight: 400; }
+.swing-grid {
+  display: grid; grid-template-columns: 1fr min(420px, 40vw); gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) { .swing-grid { grid-template-columns: 1fr; } }
+
+/* 日报 / 评测文档 */
+.swing-doc-wrap {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; margin-bottom: 16px; max-height: 520px; overflow-y: auto;
+}
+.swing-eval-wrap { max-height: 640px; }
+.swing-report-meta { margin-bottom: 10px; }
+.swing-meta-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.swing-doc-head { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.swing-doc-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.swing-doc-sub { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.swing-section { margin-bottom: 16px; }
+.swing-section:last-child { margin-bottom: 0; }
+.swing-section-title {
+  margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.swing-summary-chips { display: flex; gap: 10px; margin-bottom: 8px; }
+.swing-sum-chip {
+  flex: 1; text-align: center; padding: 10px 8px; border-radius: 8px;
+  background: #0f1419; border: 1px solid var(--line);
+}
+.swing-sum-chip .n { display: block; font-size: 22px; font-weight: 700; line-height: 1.2; }
+.swing-sum-chip .l { font-size: 11px; color: var(--muted); }
+.swing-sum-chip.predict .n { color: var(--green); }
+.swing-sum-chip.watch .n { color: var(--amber); }
+.swing-sum-chip.reject .n { color: var(--muted); }
+
+.swing-gate-panel {
+  background: #0f1419; border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 14px;
+}
+.swing-gate-panel.flat { margin-bottom: 0; }
+.swing-gate-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.swing-gate-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.swing-gate-line { font-size: 13px; line-height: 1.55; margin-bottom: 4px; }
+.swing-chip {
+  display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+  background: #283242; color: var(--text); border: 1px solid var(--line);
+}
+.swing-chip.applied { background: #1f6feb22; border-color: #4f9cf955; color: #6cb6ff; }
+.swing-chip.warn { background: #d2992233; color: #e3b341; border-color: #d2992255; }
+.swing-chip.muted { background: transparent; color: var(--muted); border-color: #2a3441; }
+
+.swing-pick-grid { display: flex; flex-direction: column; gap: 10px; }
+.swing-pick-grid.compact .swing-pick-card { padding: 10px 12px; }
+.swing-pick-card {
+  background: #0f1419; border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; transition: border-color .15s;
+}
+.swing-pick-card:hover { border-color: #4f9cf955; }
+.swing-pick-card.action-predict { border-left: 3px solid var(--green); }
+.swing-pick-card.action-watch { border-left: 3px solid var(--amber); }
+.swing-pick-card.action-reject { border-left: 3px solid #484f58; }
+.swing-pick-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 10px; margin-bottom: 8px;
+}
+.swing-pick-ident { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.swing-pick-code { font-weight: 700; font-size: 14px; color: var(--accent); }
+.swing-pick-name { font-size: 13px; color: var(--text); }
+.swing-pick-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.swing-pick-score {
+  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.swing-pick-meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.5; }
+.swing-pick-tagline { font-size: 12px; margin-bottom: 4px; line-height: 1.45; }
+.swing-pick-tagline.pos-tag { color: #ff7b72; }
+.swing-pick-tagline.risk-tag { color: var(--amber); }
+.swing-pick-reasons {
+  margin: 6px 0 0; padding-left: 16px; font-size: 13px; line-height: 1.55;
+  color: var(--text);
+}
+.swing-pick-reasons li { margin-bottom: 3px; }
+.swing-pick-materials {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line);
+}
+.swing-mat-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.swing-mat-item {
+  font-size: 11px; color: var(--muted); line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.swing-table-wrap { margin: 0; border: 0; background: transparent; }
+.swing-table-wrap table { font-size: 12px; }
+.swing-table-wrap th { font-size: 11px; }
+.swing-table-wrap .sw-reason-cell,
+.swing-table-wrap td.sw-reason-cell {
+  text-align: left; white-space: normal; max-width: 140px;
+  line-height: 1.4; font-size: 11px;
+}
+.swing-eval-summary {
+  margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.6; color: var(--muted);
+}
+.swing-eval-summary li { margin-bottom: 4px; }
+.sw-code {
+  background: #283242; padding: 1px 5px; border-radius: 4px; font-size: 11px;
+}
+
+.swing-md pre {
+  max-height: 420px; overflow-y: auto; margin: 0;
+}
+.swing-md h1, .swing-md h2, .swing-md h3 { margin: 12px 0 8px; font-size: 14px; }
+.swing-md p, .swing-md li { font-size: 13px; line-height: 1.55; color: var(--text); }
+.swing-detail-box { width: min(760px, 96vw); }
+.sw-detail-block {
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 12px; font-size: 13px; line-height: 1.55;
+}
+.delta-card { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.delta-card:last-child { border-bottom: 0; }
+.delta-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.delta-date { color: var(--muted); font-size: 12px; }
+.truncate-cell { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.sent-select {
+  background: #283242; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; font-size: 13px;
+}

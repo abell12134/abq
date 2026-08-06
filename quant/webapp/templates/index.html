@@ -27,6 +27,7 @@
     <button class="tab" data-tab="compare">双线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
     <button class="tab" data-tab="sentiment">舆情跟踪</button>
+    <button class="tab" data-tab="swing">短线猎手</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
   </nav>
 
@@ -148,6 +149,63 @@
         </div>
       </div>
     </section>
+
+    <!-- 短线猎手 -->
+    <section id="swing" class="panel">
+      <div class="sent-toolbar">
+        <div>
+          <h2 class="sent-title">短线猎手 · 10 日 +10% 预测</h2>
+          <p class="panel-desc">三路候选（量化强势/事件催化/跟踪延伸）→ LLM 多空辩论 → 分档预测 ·
+            收盘口径跟踪（T+1 开盘入场，10 日内收盘 ≥+10% 记 hit，≤−5% 记止损）· 纯建议，不改订单</p>
+        </div>
+        <div class="sent-actions">
+          <span id="swing-updated" class="sent-updated">—</span>
+          <button id="swing-refresh" type="button">刷新</button>
+          <button id="swing-run" type="button" class="btn-secondary">运行短线猎手</button>
+        </div>
+      </div>
+      <div id="swing-stats" class="cards"></div>
+      <div id="swing-load-err" class="ops-summary hidden" style="color:var(--amber)"></div>
+      <div class="swing-grid">
+        <div class="swing-col-main">
+          <h3>每日报告</h3>
+          <div id="swing-report-meta" class="swing-report-meta"></div>
+          <div id="swing-report" class="swing-doc-wrap"></div>
+          <h3>活跃跟踪</h3>
+          <div id="swing-active" class="table-wrap"></div>
+          <h3 id="swing-pred-title">最新预测</h3>
+          <div id="swing-preds" class="table-wrap"></div>
+          <h3>已结算记录（近）</h3>
+          <div id="swing-settled" class="table-wrap"></div>
+        </div>
+        <div class="swing-col-side">
+          <h3>LLM 评测</h3>
+          <div class="sent-actions" style="margin-bottom:8px">
+            <select id="swing-eval-day" class="sent-select"></select>
+          </div>
+          <div id="swing-eval" class="swing-doc-wrap swing-eval-wrap"></div>
+          <h3>模式库 <span id="swing-patterns-count" class="muted-tag"></span></h3>
+          <div id="swing-patterns" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 短线猎手详情 -->
+    <div id="swing-detail-modal" class="modal hidden">
+      <div class="modal-box swing-detail-box">
+        <div class="modal-head">
+          <span id="sw-detail-title">—</span>
+          <button id="sw-detail-close" type="button">关闭</button>
+        </div>
+        <div id="sw-detail-meta" class="ops-summary"></div>
+        <h4>预测理由</h4>
+        <div id="sw-detail-pred" class="sw-detail-block"></div>
+        <h4>Delta 跟踪（仅新增材料）</h4>
+        <div id="sw-detail-deltas" class="sw-detail-block"></div>
+        <h4>逐日跟踪</h4>
+        <div id="sw-detail-daily" class="table-wrap"></div>
+      </div>
+    </div>
 
     <!-- 告警/调度 -->
     <section id="alerts" class="panel">

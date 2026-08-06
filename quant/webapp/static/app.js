@@ -73,10 +73,15 @@ function applyAccessUI(access = {}) {
       badge.title = `当前 IP ${access.client_ip}，可加入 configs/webapp.local.yaml`;
     }
   }
-  const writeBtns = ["refresh", "sent-refresh", "sent-run", "sent-analyze-one", "sent-rerun-one"];
+  const writeBtns = ["sent-run", "sent-analyze-one", "sent-rerun-one", "swing-run"];
   writeBtns.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle("hidden", demo);
+  });
+  // 刷新按钮演示模式也可用（只读）
+  ["refresh", "sent-refresh", "swing-refresh"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("hidden");
   });
   const codeInput = document.getElementById("sent-code");
   if (codeInput) {
@@ -854,12 +859,592 @@ document.getElementById("sent-rerun-one")?.addEventListener("click", () => {
   triggerSentimentRun({ instrument: sentInst, btn, label: "重新分析本股" });
 });
 
+// ----------------- 短线猎手 -----------------
+const SWING_ACTION_LABEL = { predict: "预测", watch: "观察", reject: "否决" };
+const SWING_STANCE_LABEL = { hold: "持有", exit: "退出", watch: "观察" };
+
+function swingActionBadge(action) {
+  const a = action || "watch";
+  const cls = a === "predict" ? "done" : (a === "reject" ? "no_trade" : "pending");
+  return `<span class="badge ${cls}">${SWING_ACTION_LABEL[a] || a}</span>`;
+}
+
+function swingStateBadge(state) {
+  const m = {
+    triggered: "待入场", holding: "跟踪中", hit: "达标", stopped: "止损",
+    expired: "到期", invalid: "失效",
+  };
+  const cls = state === "hit" ? "done" : (state === "stopped" ? "no_trade" : "pending");
+  return `<span class="badge ${cls}">${m[state] || state || "—"}</span>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function mdInline(s) {
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code class='sw-code'>$1</code>");
+}
+
+function parseMarkdownTable(text) {
+  const lines = (text || "").split("\n").filter(l => l.trim().startsWith("|"));
+  if (lines.length < 2) return null;
+  const parseRow = line => line.split("|").slice(1, -1).map(c => c.trim());
+  const headers = parseRow(lines[0]);
+  const rows = lines.slice(2).map(parseRow).filter(r => r.some(c => c));
+  return { headers, rows };
+}
+
+function renderStyledTable(tbl, opts = {}) {
+  if (!tbl || !tbl.rows.length) return "";
+  const { headers, rows } = tbl;
+  let h = "<div class='table-wrap swing-table-wrap'><table><thead><tr>";
+  headers.forEach(hdr => { h += `<th>${mdInline(hdr)}</th>`; });
+  h += "</tr></thead><tbody>";
+  rows.forEach(row => {
+    h += "<tr>";
+    row.forEach((cell, i) => {
+      const hdr = (headers[i] || "").toLowerCase();
+      let inner = mdInline(cell);
+      const actOnly = cell.replace(/↘.*/, "").trim();
+      if (hdr === "action" || hdr === "动作") {
+        inner = swingActionBadge(actOnly);
+      } else if (hdr.includes("action/conf") || hdr.includes("action")) {
+        const slash = cell.indexOf("/");
+        const act = slash >= 0 ? cell.slice(0, slash).trim() : actOnly;
+        if (/^(predict|watch|reject)$/i.test(act)) {
+          inner = swingActionBadge(act);
+          if (slash >= 0) inner += `<span class="sent-meta">/${escapeHtml(cell.slice(slash + 1))}</span>`;
+        }
+      } else if (hdr.includes("标的") && /^[A-Z]{2}\d{6}/.test(cell)) {
+        const inst = cell.split(/\s+/)[0];
+        inner = `<span class="clickable" data-inst="${inst}">${mdInline(cell)}</span>`;
+      } else if (hdr.includes("理由") || hdr.includes("headline")) {
+        h += `<td class="sw-reason-cell">${inner}</td>`;
+        return;
+      }
+      h += `<td>${inner}</td>`;
+    });
+    h += "</tr>";
+  });
+  h += "</tbody></table></div>";
+  return h;
+}
+
+function parseStockBlocks(body) {
+  const blocks = (body || "").split(/\n### /).filter(b => b.trim());
+  return blocks.map(block => {
+    const lines = block.split("\n");
+    const head = lines[0].trim();
+    const parts = head.split("·").map(s => s.trim());
+    const instMatch = parts[0]?.match(/^(\S+)\s+(.*)$/);
+    const inst = instMatch?.[1] || parts[0] || "";
+    const name = instMatch?.[2] || "";
+    const action = (parts.find(p => /^(predict|watch|reject)$/i.test(p)) || "watch").toLowerCase();
+    const swingPart = parts.find(p => p.includes("swing"));
+    const swing = swingPart ? swingPart.replace(/.*swing\s*/i, "") : "";
+    const gatePart = parts.find(p => p.includes("门槛"));
+    const gate = gatePart ? gatePart.replace(/.*门槛\s*/i, "") : "";
+    const bullets = [];
+    const materials = [];
+    let inMaterials = false;
+    for (const line of lines.slice(1)) {
+      if (line.startsWith("- **近期材料**")) { inMaterials = true; continue; }
+      if (line.startsWith("  - ")) {
+        materials.push(line.replace(/^\s*-\s*/, ""));
+        continue;
+      }
+      if (line.startsWith("- ")) {
+        bullets.push(line.replace(/^-\s*/, ""));
+        inMaterials = false;
+      }
+    }
+    return { inst, name, action, swing, gate, bullets, materials };
+  });
+}
+
+function renderStockCard(stock, compact = false) {
+  const catalyst = stock.bullets.find(b => b.includes("催化"));
+  const risk = stock.bullets.find(b => b.includes("风险"));
+  const meta = stock.bullets.find(b => b.includes("置信度") || b.includes("目标档"));
+  const reasons = stock.bullets.filter(b =>
+    !b.includes("催化") && !b.includes("风险") && !b.includes("置信度") && !b.includes("目标档"));
+  const mats = stock.materials.slice(0, compact ? 3 : 5);
+  return `
+    <div class="swing-pick-card action-${stock.action}">
+      <div class="swing-pick-head">
+        <div class="swing-pick-ident">
+          <span class="swing-pick-code clickable" data-inst="${stock.inst}">${stock.inst}</span>
+          <span class="swing-pick-name">${escapeHtml(stock.name)}</span>
+        </div>
+        <div class="swing-pick-badges">
+          ${swingActionBadge(stock.action)}
+          <span class="swing-pick-score">${stock.swing ? "swing " + stock.swing : ""}</span>
+          ${stock.gate ? `<span class="badge peak">${escapeHtml(stock.gate)}</span>` : ""}
+        </div>
+      </div>
+      ${meta ? `<div class="swing-pick-meta">${mdInline(meta)}</div>` : ""}
+      ${catalyst ? `<div class="swing-pick-tagline pos-tag">${mdInline(catalyst)}</div>` : ""}
+      ${risk ? `<div class="swing-pick-tagline risk-tag">${mdInline(risk)}</div>` : ""}
+      ${reasons.length ? `<ul class="swing-pick-reasons">${reasons.map(r =>
+        `<li>${mdInline(r)}</li>`).join("")}</ul>` : ""}
+      ${mats.length ? `<div class="swing-pick-materials"><div class="swing-mat-label">近期材料</div>${mats.map(m =>
+        `<div class="swing-mat-item">${mdInline(m)}</div>`).join("")}</div>` : ""}
+    </div>`;
+}
+
+function renderSwingDailyDoc(md, meta) {
+  if (!md) return '<div class="empty">暂无日报</div>';
+  const sections = md.split(/\n## /);
+  const header = sections[0] || "";
+  const titleM = header.match(/^# (.+)/m);
+  const quoteM = header.match(/^> (.+)/m);
+  let html = '<div class="swing-doc">';
+  html += `<div class="swing-doc-head">
+    <div class="swing-doc-title">${mdInline(titleM?.[1] || "短线猎手日报")}</div>
+    ${quoteM ? `<div class="swing-doc-sub">${mdInline(quoteM[1])}</div>` : ""}
+  </div>`;
+
+  if (meta?.gate) {
+    const g = meta.gate;
+    html += `<div class="swing-gate-panel">
+      <div class="swing-gate-title">预测门槛</div>
+      <div class="swing-gate-row">
+        <span class="swing-chip">初始 <strong>${escapeHtml(g.initial_tier || "strict")}</strong></span>
+        <span class="swing-chip applied">采用 <strong>${escapeHtml(g.applied_tier || "—")}</strong></span>
+        ${g.fallback_used ? '<span class="swing-chip warn">已降档</span>' : ""}
+        <span class="swing-chip muted">predict ${g.n_predict_initial ?? "—"} → ${g.n_predict_final ?? "—"}</span>
+      </div>
+      <div class="sent-meta">${escapeHtml(g.label_applied || "")}</div>
+    </div>`;
+  }
+
+  for (let i = 1; i < sections.length; i++) {
+    const chunk = sections[i];
+    const nl = chunk.indexOf("\n");
+    const title = chunk.slice(0, nl > 0 ? nl : chunk.length).trim();
+    const body = nl > 0 ? chunk.slice(nl + 1).trim() : "";
+
+    if (title.includes("汇总")) {
+      const tbl = parseMarkdownTable(body);
+      const gateLine = body.split("\n").find(l => l.includes("预测门槛"));
+      html += `<div class="swing-section"><h4 class="swing-section-title">${mdInline(title)}</h4>`;
+      if (tbl && tbl.rows[0]) {
+        const [np, nw, nr] = tbl.rows[0];
+        html += `<div class="swing-summary-chips">
+          <div class="swing-sum-chip predict"><span class="n">${np}</span><span class="l">预测</span></div>
+          <div class="swing-sum-chip watch"><span class="n">${nw}</span><span class="l">观察</span></div>
+          <div class="swing-sum-chip reject"><span class="n">${nr}</span><span class="l">否决</span></div>
+        </div>`;
+      }
+      if (gateLine) html += `<div class="sent-meta">${mdInline(gateLine)}</div>`;
+      html += "</div>";
+      continue;
+    }
+
+    const stocks = parseStockBlocks(body);
+    const isWatch = title.includes("watch");
+    const limit = isWatch ? 5 : 20;
+    html += `<div class="swing-section">
+      <h4 class="swing-section-title">${mdInline(title)}</h4>
+      <div class="swing-pick-grid${isWatch ? " compact" : ""}">`;
+    if (!stocks.length) {
+      html += '<div class="empty">（无）</div>';
+    } else {
+      stocks.slice(0, limit).forEach(s => { html += renderStockCard(s, isWatch); });
+      if (stocks.length > limit) {
+        html += `<div class="sent-meta">另有 ${stocks.length - limit} 只未展示</div>`;
+      }
+    }
+    html += "</div></div>";
+  }
+  html += "</div>";
+  return html;
+}
+
+function renderSwingEvalDoc(md) {
+  if (!md) return '<div class="empty">尚无评测报告</div>';
+  const sections = md.split(/\n## /);
+  const header = sections[0] || "";
+  const titleM = header.match(/^# (.+)/m);
+  const quoteM = header.match(/^> (.+)/m);
+  let html = '<div class="swing-doc swing-eval-doc">';
+  html += `<div class="swing-doc-head">
+    <div class="swing-doc-title">${mdInline(titleM?.[1] || "LLM 评测")}</div>
+    ${quoteM ? `<div class="swing-doc-sub">${mdInline(quoteM[1])}</div>` : ""}
+  </div>`;
+
+  for (let i = 1; i < sections.length; i++) {
+    const chunk = sections[i];
+    const nl = chunk.indexOf("\n");
+    const title = chunk.slice(0, nl > 0 ? nl : chunk.length).trim();
+    const body = nl > 0 ? chunk.slice(nl + 1).trim() : "";
+
+    html += `<div class="swing-section"><h4 class="swing-section-title">${mdInline(title)}</h4>`;
+
+    if (title.includes("预测门槛")) {
+      const items = body.split("\n").filter(l => l.startsWith("- "));
+      html += '<div class="swing-gate-panel flat">';
+      items.forEach(item => {
+        html += `<div class="swing-gate-line">${mdInline(item.replace(/^-\s*/, ""))}</div>`;
+      });
+      html += "</div>";
+    } else if (title.includes("汇总")) {
+      html += '<ul class="swing-eval-summary">';
+      body.split("\n").filter(l => l.startsWith("- ")).forEach(l => {
+        html += `<li>${mdInline(l.replace(/^-\s*/, ""))}</li>`;
+      });
+      html += "</ul>";
+    } else if (body.includes("|")) {
+      const tbl = parseMarkdownTable(body);
+      html += renderStyledTable(tbl, { actionCol: tbl?.headers.findIndex(h =>
+        h.toLowerCase().includes("action")) });
+    } else {
+      html += `<div class="sent-meta">${mdInline(body)}</div>`;
+    }
+    html += "</div>";
+  }
+  html += "</div>";
+  return html;
+}
+
+function bindSwingDocClicks(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-inst].clickable").forEach(el => {
+    el.onclick = () => openSwingDetail(el.dataset.inst);
+  });
+}
+
+function renderSwingReport(md, meta) {
+  const box = document.getElementById("swing-report");
+  const metaBox = document.getElementById("swing-report-meta");
+  if (!box) return;
+  box.innerHTML = renderSwingDailyDoc(md, meta);
+  bindSwingDocClicks(box);
+  if (metaBox && meta) {
+    const sp = meta.sentiment_prep || {};
+    const ds = meta.delta_summary || {};
+    const chips = [];
+    if (sp.collected != null || sp.skipped != null) {
+      chips.push(`舆情补齐 <strong>${sp.collected ?? 0}</strong> · 跳过 ${sp.skipped ?? 0}`);
+    }
+    if (ds.updated != null) chips.push(`Delta ${ds.updated}`);
+    if (meta.n_llm_ok != null) chips.push(`LLM ${meta.n_llm_ok}`);
+    if (meta.source === "eval") chips.push("来源评测");
+    metaBox.innerHTML = chips.length
+      ? `<div class="swing-meta-chips">${chips.map(c => `<span class="swing-chip muted">${c}</span>`).join("")}</div>`
+      : "";
+  }
+}
+
+function renderSwingEval(data) {
+  const box = document.getElementById("swing-eval");
+  const sel = document.getElementById("swing-eval-day");
+  if (!box) return;
+  if (!data.days?.length) {
+    box.innerHTML = '<div class="empty">尚无评测报告（run_swing_eval.py）</div>';
+    if (sel) sel.innerHTML = "";
+    return;
+  }
+  const paint = (markdown) => {
+    box.innerHTML = renderSwingEvalDoc(markdown);
+    bindSwingDocClicks(box);
+  };
+  if (sel) {
+    sel.innerHTML = data.days.map(d =>
+      `<option value="${d}"${d === data.day ? " selected" : ""}>${d}</option>`).join("");
+    sel.onchange = async () => {
+      const r = await safeJSON(`/api/swing/eval?day=${sel.value}`);
+      paint(r?.markdown || "");
+    };
+  }
+  paint(data.markdown);
+}
+
+function swingMdToHtml(md) {
+  return renderSwingDailyDoc(md, null);
+}
+
+function renderSwingPatterns(data) {
+  const box = document.getElementById("swing-patterns");
+  const cnt = document.getElementById("swing-patterns-count");
+  if (!box) return;
+  const patterns = data.patterns || [];
+  if (cnt) cnt.textContent = patterns.length ? `(${data.count ?? patterns.length} 条)` : "";
+  if (!patterns.length) {
+    box.innerHTML = '<div class="empty">尚无 hit 挖掘案例（达标后自动写入 swing_patterns.yaml）</div>';
+    return;
+  }
+  let h = "<table><thead><tr><th>标的</th><th>预测日</th><th>收益</th>"
+    + "<th>催化</th><th>理由</th></tr></thead><tbody>";
+  for (const p of patterns.slice(0, 20)) {
+    h += "<tr>"
+      + `<td class="clickable" data-inst="${p.instrument}">${p.instrument} ${p.name || ""}</td>`
+      + `<td>${p.pred_date || "—"}</td>`
+      + `<td class="${cls(p.result_return)}">${p.result_return != null ? pct(p.result_return * 100) : "—"}</td>`
+      + `<td style="text-align:left">${(p.catalysts || []).join("、") || "—"}</td>`
+      + `<td class="truncate-cell" style="text-align:left">${(p.reasons || [])[0] || "—"}</td>`
+      + "</tr>";
+  }
+  box.innerHTML = h + "</tbody></table>";
+  box.querySelectorAll("td.clickable").forEach(td =>
+    td.onclick = () => openSwingDetail(td.dataset.inst));
+}
+
+async function openSwingDetail(instrument) {
+  const modal = document.getElementById("swing-detail-modal");
+  if (!modal) { openStock(instrument); return; }
+  modal.classList.remove("hidden");
+  document.getElementById("sw-detail-title").textContent = instrument + " · 加载中…";
+  try {
+    const d = await getJSON(`/api/swing/detail/${instrument}`);
+    const p = d.prediction;
+    const ar = d.active_record;
+    document.getElementById("sw-detail-title").textContent =
+      `${instrument} ${p?.name || ar?.name || ""}`;
+    const meta = document.getElementById("sw-detail-meta");
+    if (ar) {
+      meta.innerHTML = `${swingStateBadge(ar.state)} · 预测日 ${ar.pred_date}`
+        + ` · 入场 ${ar.entry_price ?? "—"} · 持有 ${ar.days_held ?? 0} 日`
+        + ` · MFE ${ar.mfe != null ? pct(ar.mfe * 100) : "—"}`;
+    } else if (p) {
+      meta.innerHTML = `${swingActionBadge(p.action)} · swing ${Number(p.swing_score).toFixed(2)}`
+        + ` · conf ${Number(p.confidence).toFixed(2)}`;
+    } else {
+      meta.innerHTML = "暂无活跃跟踪或最新预测";
+    }
+    const predBox = document.getElementById("sw-detail-pred");
+    if (p) {
+      predBox.innerHTML = "<ul class='sent-ul'>"
+        + (p.reasons || []).map(r => `<li>${r}</li>`).join("")
+        + "</ul>"
+        + (p.catalysts?.length ? `<p><strong>催化</strong> ${p.catalysts.join("、")}</p>` : "")
+        + (p.risk_tags?.length ? `<p><strong>风险</strong> ${p.risk_tags.join("、")}</p>` : "")
+        + ((p.news_brief || []).length
+          ? "<p><strong>材料</strong></p><ul class='sent-ul'>"
+            + p.news_brief.slice(0, 6).map(e =>
+              `<li>[${e.source || ""}] ${e.published || ""} ${e.title || ""}</li>`).join("")
+            + "</ul>" : "");
+    } else {
+      predBox.innerHTML = '<div class="empty">无最新预测条目</div>';
+    }
+    const deltaBox = document.getElementById("sw-detail-deltas");
+    const deltas = d.deltas || [];
+    if (!deltas.length) {
+      deltaBox.innerHTML = '<div class="empty">尚无 delta（每日仅分析新增公告）</div>';
+    } else {
+      deltaBox.innerHTML = deltas.slice(0, 12).map(dl => `
+        <div class="delta-card">
+          <div class="delta-head">
+            <span class="badge pending">${SWING_STANCE_LABEL[dl.stance] || dl.stance || "—"}</span>
+            <span class="delta-date">${dl.date || ""}</span>
+            ${dl.invalidate ? '<span class="badge no_trade">证伪</span>' : ""}
+          </div>
+          <div><strong>${dl.headline || ""}</strong></div>
+          <div class="sent-meta">${dl.summary || ""}</div>
+          ${(dl.new_items_preview || []).slice(0, 3).map(it =>
+            `<div class="sent-meta">· [${it.source || ""}] ${it.title || ""}</div>`).join("")}
+        </div>`).join("");
+    }
+    const dailyBox = document.getElementById("sw-detail-daily");
+    const rec = ar || (d.tracker?.records || [])[0];
+    const daily = rec?.daily || [];
+    if (!daily.length) {
+      dailyBox.innerHTML = '<div class="empty">尚无逐日收盘数据</div>';
+    } else {
+      let ht = "<table><thead><tr><th>日期</th><th>收盘</th><th>收益</th></tr></thead><tbody>";
+      for (const row of daily) {
+        ht += `<tr><td>${row.date}</td><td>${row.close}</td>`
+          + `<td class="${cls(row.ret)}">${pct(row.ret * 100)}</td></tr>`;
+      }
+      dailyBox.innerHTML = ht + "</tbody></table>";
+    }
+  } catch (e) {
+    document.getElementById("sw-detail-meta").textContent = "加载失败：" + (e.message || e);
+  }
+}
+
+document.getElementById("sw-detail-close")?.addEventListener("click", () =>
+  document.getElementById("swing-detail-modal")?.classList.add("hidden"));
+document.getElementById("swing-detail-modal")?.addEventListener("click", (e) => {
+  if (e.target.id === "swing-detail-modal") e.target.classList.add("hidden");
+});
+
+async function safeJSON(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return { _error: url + " " + r.status };
+    return await r.json();
+  } catch (e) {
+    return { _error: url + " " + (e.message || e) };
+  }
+}
+
+async function loadSwing() {
+  const errBox = document.getElementById("swing-load-err");
+  const showErr = (msg) => {
+    if (errBox) {
+      errBox.textContent = msg;
+      errBox.classList.remove("hidden");
+    } else {
+      console.error(msg);
+    }
+  };
+  if (errBox) errBox.classList.add("hidden");
+
+  const [cat, trk, report, evalData, patterns] = await Promise.all([
+    safeJSON("/api/swing/catalog"),
+    safeJSON("/api/swing/tracking?limit=80"),
+    safeJSON("/api/swing/report"),
+    safeJSON("/api/swing/eval"),
+    safeJSON("/api/swing/patterns?limit=20"),
+  ]);
+  const errors = [cat, trk, report, evalData, patterns]
+    .filter(x => x && x._error).map(x => x._error);
+  if (errors.length) {
+    showErr("部分数据加载失败（若刚更新代码请重启看板服务）：" + errors.join("；"));
+  }
+  if (cat?._error) {
+    document.getElementById("swing-preds").innerHTML =
+      '<div class="empty">无法连接短线猎手 API，请重启 webapp 后刷新</div>';
+    return;
+  }
+  document.getElementById("swing-updated").textContent =
+    cat.updated_at ? `更新 ${cat.updated_at}` : "—";
+  const title = document.getElementById("swing-pred-title");
+  if (title) title.textContent = `最新预测 · ${cat.prediction_day || "无"}`;
+
+  renderSwingReport(report?.markdown || "", report?.meta || cat.prediction_meta);
+  renderSwingEval(evalData?._error ? { days: [], markdown: "" } : evalData);
+  renderSwingPatterns(patterns?._error ? { patterns: [] } : patterns);
+
+  const st = cat.stats || (trk && !trk._error ? trk.stats : {}) || {};
+  const statsBox = document.getElementById("swing-stats");
+  if (statsBox) {
+    statsBox.innerHTML = "";
+    const hr = st.hit_rate != null ? pct(st.hit_rate * 100, 1) : "—";
+    const meta = cat.prediction_meta || report.meta || {};
+    const sp = meta.sentiment_prep || {};
+    statsBox.appendChild(card("活跃跟踪", String(st.active ?? cat.active?.length ?? 0), "只", ""));
+    statsBox.appendChild(card("已结算", String(st.settled ?? 0), `hit率 ${hr}`, st.hit_rate > 0.25 ? "pos" : ""));
+    statsBox.appendChild(card("达标 hit", String(st.hit ?? 0), `止损 ${st.stopped ?? 0} · 到期 ${st.expired ?? 0}`, ""));
+    statsBox.appendChild(card("均收益(结算)", st.avg_return != null ? pct(st.avg_return * 100, 1) : "—",
+      st.note || "收盘口径 · 样本不足", cls(st.avg_return)));
+    if (sp.collected != null) {
+      statsBox.appendChild(card("舆情补齐", String(sp.collected), `跳过 ${sp.skipped ?? 0}`, ""));
+    }
+  }
+
+  const activeBox = document.getElementById("swing-active");
+  const active = cat.active || [];
+  if (!active.length) {
+    activeBox.innerHTML = '<div class="empty">暂无活跃跟踪（predict 动作会入跟踪）</div>';
+  } else {
+    let h = "<table><thead><tr><th>标的</th><th>预测日</th><th>状态</th>"
+      + "<th>置信度</th><th>入场</th><th>持有</th><th>MFE</th><th>最新 Delta</th></tr></thead><tbody>";
+    for (const r of active) {
+      const ld = r.latest_delta;
+      const deltaTxt = ld
+        ? `${SWING_STANCE_LABEL[ld.stance] || ld.stance || ""} ${(ld.headline || "").slice(0, 28)}`
+        : "—";
+      h += "<tr>"
+        + `<td class="clickable" data-inst="${r.instrument}">${r.instrument} ${r.name || ""}</td>`
+        + `<td>${r.pred_date || "—"}</td><td>${swingStateBadge(r.state)}</td>`
+        + `<td>${r.confidence != null ? Number(r.confidence).toFixed(2) : "—"}</td>`
+        + `<td>${r.entry_price != null ? fmt(r.entry_price) : "—"}</td>`
+        + `<td>${r.days_held ?? 0}日</td>`
+        + `<td class="${cls(r.mfe)}">${r.mfe != null ? pct(r.mfe * 100) : "—"}</td>`
+        + `<td class="truncate-cell" style="text-align:left">${deltaTxt}</td>`
+        + "</tr>";
+    }
+    activeBox.innerHTML = h + "</tbody></table>";
+    activeBox.querySelectorAll("td.clickable").forEach(td =>
+      td.onclick = () => openSwingDetail(td.dataset.inst));
+  }
+
+  const preds = cat.predictions || [];
+  const predBox = document.getElementById("swing-preds");
+  if (!preds.length) {
+    predBox.innerHTML = '<div class="empty">尚无预测文件；evening 流水线或点击「运行短线猎手」</div>';
+  } else {
+    let h = "<table><thead><tr><th>标的</th><th>动作</th><th>置信度</th><th>融合分</th>"
+      + "<th>门槛</th><th>目标档</th><th>催化</th><th>理由</th></tr></thead><tbody>";
+    for (const p of preds.slice(0, 40)) {
+      const tiers = (p.target_tiers || []).map(t =>
+        `+${(t.pct * 100).toFixed(0)}%@${((t.prob || 0) * 100).toFixed(0)}%`).join(" · ");
+      const gt = (p.meta || {}).gate_tier || "—";
+      const gate = (p.meta || {}).gate_fallback ? `${gt} ↘` : gt;
+      h += "<tr>"
+        + `<td class="clickable" data-inst="${p.instrument}">${p.instrument} ${p.name || ""}</td>`
+        + `<td>${swingActionBadge(p.action)}</td>`
+        + `<td>${p.confidence != null ? Number(p.confidence).toFixed(2) : "—"}</td>`
+        + `<td>${p.swing_score != null ? Number(p.swing_score).toFixed(2) : "—"}</td>`
+        + `<td>${gate}</td>`
+        + `<td style="text-align:left">${tiers || "—"}</td>`
+        + `<td style="text-align:left">${(p.catalysts || []).join("、") || "—"}</td>`
+        + `<td class="truncate-cell" style="text-align:left;white-space:normal">${(p.reasons || [])[0] || "—"}</td>`
+        + "</tr>";
+    }
+    predBox.innerHTML = h + "</tbody></table>";
+    predBox.querySelectorAll("td.clickable").forEach(td =>
+      td.onclick = () => openSwingDetail(td.dataset.inst));
+  }
+
+  const settled = ((trk && !trk._error ? trk.records : []) || []).filter(r =>
+    r.result === "hit" || r.result === "stopped" || r.result === "expired");
+  const setBox = document.getElementById("swing-settled");
+  if (!settled.length) {
+    setBox.innerHTML = '<div class="empty">尚无结算记录（需 predict 入跟踪并经历 ≥1 交易日）</div>';
+  } else {
+    let h = "<table><thead><tr><th>标的</th><th>预测日</th><th>结果</th>"
+      + "<th>收益</th><th>持有</th><th>催化</th></tr></thead><tbody>";
+    for (const r of settled.slice(0, 30)) {
+      h += "<tr>"
+        + `<td class="clickable" data-inst="${r.instrument}">${r.instrument} ${r.name || ""}</td>`
+        + `<td>${r.pred_date}</td><td>${swingStateBadge(r.result)}</td>`
+        + `<td class="${cls(r.result_return)}">${r.result_return != null ? pct(r.result_return * 100) : "—"}</td>`
+        + `<td>${r.days_held ?? 0}日</td>`
+        + `<td style="text-align:left">${(r.catalysts || []).join("、") || "—"}</td>`
+        + "</tr>";
+    }
+    setBox.innerHTML = h + "</tbody></table>";
+    setBox.querySelectorAll("td.clickable").forEach(td =>
+      td.onclick = () => openSwingDetail(td.dataset.inst));
+  }
+}
+
+document.getElementById("swing-refresh")?.addEventListener("click", () => loadSwing());
+
+document.getElementById("swing-run")?.addEventListener("click", async () => {
+  if (!fullAccess) {
+    alert("演示模式：仅对白名单 IP 开放");
+    return;
+  }
+  const btn = document.getElementById("swing-run");
+  btn.disabled = true;
+  btn.textContent = "运行中…";
+  try {
+    const r = await fetch("/api/swing/run?account=live_manual_10k", { method: "POST" });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || r.status);
+    alert("已后台启动短线猎手；约 1~5 分钟后点刷新查看（日志：" + (body.log || "") + "）");
+  } catch (e) {
+    alert("启动失败：" + (e.message || e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "运行短线猎手";
+  }
+});
+
 // ----------------- 路由 -----------------
 async function loadTab(tab) {
   try {
     if (tab === "overview") await loadOverview();
     else if (tab === "daily-ops") await loadDailyOps();
     else if (tab === "sentiment") await loadSentiment(true);
+    else if (tab === "swing") await loadSwing();
     else if (tab === "compare") await loadCompare();
     else if (tab === "alerts") await loadAlerts();
     else await loadAccount(tab);

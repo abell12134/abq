@@ -823,6 +823,192 @@ def _sentiment_peak_now() -> bool:
         return False
 
 
+# ----------------- 短线猎手（纯看板建议层） -----------------
+
+
+@app.get("/api/swing/catalog")
+def api_swing_catalog():
+    """短线猎手目录：活跃预测 + 累计统计 + 最新预测日全量决策。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import store as SW  # noqa: WPS433
+    from overlays.swing_hunter.schema import (  # noqa: WPS433
+        latest_prediction_day, read_predictions)
+
+    cat = SW.load_catalog()
+    day = latest_prediction_day()
+    pf = read_predictions(day) if day else None
+    preds = []
+    if pf:
+        # predict 在前、watch 次之、reject 垫底；同级按 swing_score 降序
+        order = {"predict": 0, "watch": 1, "reject": 2}
+        preds = sorted(
+            (p.to_dict() for p in pf.predictions),
+            key=lambda p: (order.get(p.get("action"), 3), -float(p.get("swing_score") or 0)),
+        )
+    return {
+        "latest_date": cat.get("latest_date"),
+        "active": cat.get("active", []),
+        "stats": cat.get("stats", {}),
+        "prediction_day": day,
+        "prediction_status": pf.status if pf else None,
+        "prediction_meta": pf.meta if pf else {},
+        "predictions": preds,
+        "updated_at": cat.get("updated_at"),
+    }
+
+
+@app.get("/api/swing/report")
+def api_swing_report(day: str | None = None):
+    """每日 Markdown 报告（predictions/YYYY-MM-DD.md）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter.schema import latest_prediction_day, read_predictions  # noqa: WPS433
+    from overlays.swing_hunter import report as RPT  # noqa: WPS433
+
+    day = day or latest_prediction_day()
+    if not day:
+        return {"day": None, "markdown": "", "meta": {}}
+    md_path = QUANT / "data" / "overlays" / "swing_hunter" / "predictions" / f"{day}.md"
+    if not md_path.exists():
+        pf = read_predictions(day)
+        if pf:
+            RPT.write_daily_report(day, pf)
+    markdown = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+    pf = read_predictions(day)
+    return {"day": day, "markdown": markdown, "meta": pf.meta if pf else {}}
+
+
+@app.get("/api/swing/eval")
+def api_swing_eval(day: str | None = None):
+    """LLM 双路评测报告（eval/YYYY-MM-DD/comparison.md）。"""
+    eval_root = QUANT / "data" / "overlays" / "swing_hunter" / "eval"
+    days = []
+    if eval_root.exists():
+        days = sorted(d.name for d in eval_root.iterdir()
+                      if d.is_dir() and len(d.name) == 10 and d.name[4] == "-")
+    if not days:
+        return {"days": [], "day": None, "markdown": "", "files": {}}
+    day = day or days[-1]
+    edir = eval_root / day
+    cmp_path = edir / "comparison.md"
+    files = {}
+    for name in ("pass1_local_top15.json", "pass2_deepseek_top5.json", "run.log"):
+        p = edir / name
+        if p.exists():
+            files[name] = str(p)
+    markdown = cmp_path.read_text(encoding="utf-8") if cmp_path.exists() else ""
+    return {"days": days, "day": day, "markdown": markdown, "files": files}
+
+
+@app.get("/api/swing/detail/{instrument}")
+def api_swing_detail(instrument: str):
+    """单票：跟踪全记录 + 最新预测 + delta 时间线。"""
+    inst = instrument.upper()
+    if not (len(inst) >= 6 and inst[:2].isalpha() and inst[2:].isdigit()):
+        raise HTTPException(400, "标的格式应为 SH600000 / SZ000001")
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import store as SW  # noqa: WPS433
+    from overlays.swing_hunter.schema import latest_prediction_day, read_predictions  # noqa: WPS433
+
+    tracker = SW.load_tracker(inst)
+    pred_day = latest_prediction_day()
+    prediction = None
+    if pred_day:
+        pf = read_predictions(pred_day)
+        if pf:
+            for p in pf.predictions:
+                if p.instrument == inst:
+                    prediction = p.to_dict()
+                    break
+    active_rec = None
+    deltas: list[dict] = []
+    for r in tracker.get("records", []):
+        if r.get("state") in {"triggered", "holding"}:
+            active_rec = r
+        for d in r.get("deltas") or []:
+            deltas.append({**d, "pred_date": r.get("pred_date")})
+    deltas.sort(key=lambda x: str(x.get("date") or ""), reverse=True)
+    return {
+        "instrument": inst,
+        "prediction_day": pred_day,
+        "prediction": prediction,
+        "tracker": tracker,
+        "active_record": active_rec,
+        "deltas": deltas[:40],
+    }
+
+
+@app.get("/api/swing/patterns")
+def api_swing_patterns(limit: int = 30):
+    """达标案例挖掘的模式库（swing_patterns.yaml）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter.pattern_mine import load_patterns, PATTERNS_PATH  # noqa: WPS433
+    lim = min(max(int(limit), 1), 100)
+    return {
+        "patterns": load_patterns(lim),
+        "path": str(PATTERNS_PATH),
+        "count": len(load_patterns(500)),
+    }
+
+
+@app.get("/api/swing/tracking")
+def api_swing_tracking(limit: int = 60):
+    """跟踪记录（不含逐日明细，列表视图）+ 收盘口径统计。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import store as SW  # noqa: WPS433
+    recs = SW.all_records(limit_per_stock=10)
+    out = []
+    for r in recs[:limit]:
+        d = r.to_dict()
+        d.pop("daily", None)
+        out.append(d)
+    return {"records": out, "stats": SW.compute_stats()}
+
+
+@app.get("/api/swing/track/{instrument}")
+def api_swing_track_one(instrument: str):
+    """单票全部预测与逐日跟踪明细（弹窗用）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import store as SW  # noqa: WPS433
+    return SW.load_tracker(instrument.upper())
+
+
+@app.post("/api/swing/run")
+def api_swing_run(request: Request,
+                  account: str = "live_manual_10k",
+                  dry_run: bool = False,
+                  track_only: bool = False):
+    """手动触发短线猎手（后台线程，纯建议层，不改订单）。"""
+    _require_full_access(request)
+    _check(account)
+    log = LOG_DIR / f"swing_hunter_{datetime.now():%Y-%m-%d}.log"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = [PY, str(QUANT / "overlays" / "swing_hunter" / "run_swing.py"),
+           "--account", account]
+    if dry_run:
+        cmd.append("--dry-run")
+    if track_only:
+        cmd.append("--track-only")
+
+    def _bg():
+        with log.open("a") as fh:
+            fh.write(f"\n=== {datetime.now():%F %T} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True,
+                    env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1"},
+                )
+                proc.wait()
+            except Exception as e:  # noqa: BLE001
+                fh.write(f"[job-error] {e}\n")
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "account": account,
+            "dry_run": dry_run, "track_only": track_only, "log": str(log)}
+
+
 @app.post("/api/run/{stage}/{account}")
 def api_run(request: Request, stage: str, account: str):
     """手动触发一次 evening/postclose（用于演示或补跑）。"""

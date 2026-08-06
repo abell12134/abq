@@ -1,0 +1,6 @@
+# 短线猎手模式库（类比 factor_lab 轻量版）
+# 由 pattern_mine.mine_from_hit() 在 hit 终态时自动追加 candidate 条目
+# status: candidate → 需样本外验证后才可晋升 live
+
+patterns: []
+updated_at: null

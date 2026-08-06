@@ -158,6 +158,18 @@ def evening(args, day: str) -> int:
         if not step("舆情长期记忆", mem, day, fatal=False):
             C.alert("WARN", "舆情长期记忆步骤异常（不影响下单）", day)
 
+    # 短线猎手（纯看板建议层）：先推进旧预测跟踪，再三路候选 → LLM 分档预测；
+    # 不改 orders/、不开账户；失败 fail-open，不影响主线下单。
+    use_swing = args.swing_hunter or bool(
+        cfg.get("execution", {}).get("use_swing_hunter"))
+    if use_swing and args.account:
+        swing = [PY, str(QUANT / "overlays" / "swing_hunter" / "run_swing.py"),
+                 "--date", day, "--account", args.account]
+        if args.dry_run_swing:
+            swing += ["--dry-run"]
+        if not step("短线猎手预测", swing, day, fatal=False):
+            C.alert("WARN", "短线猎手步骤异常（不影响下单，纯建议层）", day)
+
     # 注：不在 evening 预生成 fills 模板——成交日期应为"次日执行日"而非订单日，
     # 在订单日写 fills/<订单日>.csv 会与上一日 postclose 的真实成交文件撞名。
     # 研究线由 simulate_fills 在 postclose 自动产出成交；
@@ -238,6 +250,10 @@ def main() -> int:
                    help="强制跑舆情长期记忆（账户 use_sentiment_memory / 实盘舆情筛开启时也会跑）")
     p.add_argument("--dry-run-sentiment-memory", action="store_true",
                    help="舆情记忆 dry-run（只采集入库，不调 LLM）")
+    p.add_argument("--swing-hunter", action="store_true",
+                   help="强制跑短线猎手预测（账户 use_swing_hunter 时也会自动跑）")
+    p.add_argument("--dry-run-swing", action="store_true",
+                   help="短线猎手 dry-run（不调 LLM，仅候选+跟踪）")
     p.add_argument("--config", default=None,
                    help="传给 make_trade_plan.py 的实盘配置覆盖文件")
     p.add_argument("--account", default=None,

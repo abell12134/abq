@@ -324,3 +324,42 @@ flowchart TD
 
 分析窗口默认 **近 90 天（约三个月）**；材料分栏为公告财报 → 政策宏观 → 媒体舆情。
 不改 `orders/`；与 `sentiment_veto`（硬伤否决 → `orders_exec/`）并列，均可 fail-open。
+
+---
+
+## 8. 短线猎手（swing_hunter）
+
+### ASCII
+
+```
+  evening（use_swing_hunter）
+         │
+         ▼
+  ┌─ 跟踪更新（规则，零 LLM）────────────────────────────┐
+  │  triggered → T+1 入场 → holding → hit/stopped/expired │
+  └──────────────────────────────────────────────────────┘
+         │
+         ▼
+  ┌─ Delta（活跃票，仅今日新增公告/舆情）───────────────┐
+  └──────────────────────────────────────────────────────┘
+         │
+         ▼
+  候选池（强势 Top30 + 事件催化 + 延伸）→ 硬伤过滤
+         │
+         ▼
+  舆情预采集（不足则 collect）→ LLM Top5（strict → 无 predict 则 standard 降档）
+         │
+         ▼
+  predictions/ + tracker/（predict 入跟踪）+ 日报.md
+         │
+         ▼
+  看板「短线猎手」/ GET /api/swing/*
+
+  hit 终态 ──→ swing_patterns.yaml（模式挖掘，需样本外验证）
+
+  ※ 不改 orders/ · 不开账户 · fail-open
+```
+
+门槛：`strict`（催化明确才 predict）→ 若无 predict，Judge 降一档 `standard`（仅重跑裁判，标记 gate_tier）。
+
+详细说明：[SWING_HUNTER.md](SWING_HUNTER.md)

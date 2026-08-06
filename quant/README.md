@@ -83,7 +83,7 @@ contracts/       层间数据契约（信号、目标持仓等 CSV schema）
 configs/         global.yaml 全局配置 + accounts/<account>.yaml 账户 profile（资金/策略/模式）
 validation/      backtrader 复演引擎(replay_backtrader.py) + UMP 裁判(ump_judge.py)，阶段2 已实现
 factor_lab/      （阶段3）LLM 因子提议(llm_propose) + qlib 评估(evaluate) + 五道准入关卡(run_iteration) + 因子库(factors.yaml)
-overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）
+overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）
 execution/       调仓清单(make_trade_plan) + 成交回填(record_fills) + 模拟成交(simulate_fills) + 对账(reconcile)
 ops/             运维层：编排(run_daily) + 净值(compute_nav) + 日报(daily_report) + 监控(monitor) + 双线复盘(review_accounts) + TA复盘(review_ta_overlay) + 回填(backfill) + 公共库(common) + crontab.example
 contracts/       层间数据契约 schema 校验/读写(schemas.py)
@@ -253,6 +253,33 @@ python ops/review_ta_overlay.py
 python overlays/ta_veto/gate_report.py
 ```
 
+### 短线猎手（swing_hunter，纯看板建议层）
+
+5~15 日收盘 **+10%** 赔率预测与跟踪；与 LGBM 主线、订单 **完全隔离**。完整说明见 **[docs/SWING_HUNTER.md](../docs/SWING_HUNTER.md)**。
+
+- **候选**：量化强势 Top30 + 近 3 日事件催化 + 跟踪延伸；硬伤规则过滤
+- **LLM**：Analyst → Bull/Bear → Judge；`strict` 无 predict 时 Judge **降一档** `standard`（仅重跑裁判，标记 `gate_tier`）
+- **Delta**：活跃票每日只分析「今日新增」公告/舆情（轻量 LLM，省 token）
+- **舆情预采集**：分析前库内条目不足则 `collect_for_instrument`（不调 sentiment_memory 全量 LLM）
+- **跟踪**：收盘口径状态机（T+1 开盘入场，10 日 +10% hit / −5% stop）；`predict` 入 `tracker/`
+- **模式挖掘**：hit 终态 → `overlays/swing_hunter/swing_patterns.yaml`
+- **开关**：`configs/accounts/live_manual_10k.yaml` → `execution.use_swing_hunter: true`（evening 在舆情记忆之后，fail-open）
+- **产出**：`data/overlays/swing_hunter/{predictions,tracker,eval,catalog.json}`
+- **看板**：「短线猎手」页 — 日报卡片、LLM 评测表、预测/跟踪/模式库；API `/api/swing/*`
+
+```bash
+# 日常（或 evening 自动）
+python overlays/swing_hunter/run_swing.py --date 2026-08-05 --account live_manual_10k
+python overlays/swing_hunter/run_swing.py --track-only          # 仅跟踪 + delta
+python overlays/swing_hunter/run_swing.py --dry-run --max-llm 5
+
+# LLM 双路评测（本地 Top15 + DeepSeek 复跑 Top5；结束 sync 看板 predictions）
+python overlays/swing_hunter/run_swing_eval.py --date 2026-08-05 --top-n 15 --refine-n 5
+
+# Phase 0：历史 hit 率（零 LLM）
+python overlays/swing_hunter/phase0_stats.py --start 2024-01-02 --end 2026-06-30
+```
+
 ```bash
 # 首次建账
 python execution/record_fills.py --account live_manual_10k --init-capital 10000 --day <交易日>
@@ -340,7 +367,8 @@ python ops/run_daily.py --stage postclose --account research_sim_100k
 
 看板页签：总览（大盘指数条 + 双线净值/累计收益/超额对比）、各账户（净值/收益vs基准/持仓数·换手/现金vs市值、
 持仓表、成交、报告）、双线对比、操作清单、**舆情跟踪**（三月走势 + 摘要报告；可输入代码分析 / 单票重跑）、
-告警/调度。API 见 `webapp/server.py`（含 `/api/sentiment/*`）。
+**短线猎手**（10 日 +10% 预测、分档门槛、日报卡片、LLM 评测、活跃跟踪与模式库）、
+告警/调度。API 见 `webapp/server.py`（含 `/api/sentiment/*`、`/api/swing/*`）。
 
 **个股行情（选中股票实际数据）**：总览的大盘指数、持仓/成交/对账表里的标的均可点击，弹出该股
 K线（红涨绿跌）+ 成交量 + 最近 OHLC 表，支持日/周/60分/15分切换。数据源（`webapp/quotes.py`）：
