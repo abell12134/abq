@@ -1,6 +1,89 @@
-# 短线猎手模式库（类比 factor_lab 轻量版）
-# 由 pattern_mine.mine_from_hit() 在 hit 终态时自动追加 candidate 条目
-# status: candidate → 需样本外验证后才可晋升 live
-
-patterns: []
-updated_at: null
+patterns:
+- id: live_20260623_SZ002739
+  status: live_case
+  source: live_fill
+  mined_at: '2026-08-07 10:02:49'
+  account: live_manual_10k
+  instrument: SZ002739
+  name: 儒意电影
+  signal_day: '2026-06-22'
+  buy_day: '2026-06-23'
+  sell_day: '2026-07-10'
+  buy_price: 8.281
+  sell_price: 10.35
+  result: hit
+  result_return: 0.2498
+  hit_tier: 3
+  days_held: 13
+  catalysts: []
+  factor_brief:
+    last_close: 8.23
+    ret_5d: -0.0272
+    ret_20d: -0.1122
+    ret_60d: -0.148
+    near_60d_high: -0.2132
+    vol_20d: 0.0234
+    vol_ratio: 1.19
+  reasons:
+  - 实盘 2026-06-23@8.281 → 2026-07-10@10.35 (+25.0%)
+  risk_tags: []
+  notes: 实盘 fills 达标回合；用于候选加权与评测夹具
+- id: live_20260713_SZ000683
+  status: live_case
+  source: live_fill
+  mined_at: '2026-08-07 10:02:51'
+  account: live_manual_10k
+  instrument: SZ000683
+  name: 博源化工
+  signal_day: '2026-07-10'
+  buy_day: '2026-07-13'
+  sell_day: '2026-07-22'
+  buy_price: 5.38
+  sell_price: 5.92
+  result: hit
+  result_return: 0.1004
+  hit_tier: 1
+  days_held: 7
+  catalysts: []
+  factor_brief:
+    last_close: 5.34
+    ret_5d: -0.1188
+    ret_20d: -0.2371
+    ret_60d: -0.3762
+    near_60d_high: -0.4252
+    vol_20d: 0.0265
+    vol_ratio: 0.82
+  reasons:
+  - 实盘 2026-07-13@5.38 → 2026-07-22@5.92 (+10.0%)
+  risk_tags: []
+  notes: 实盘 fills 达标回合；用于候选加权与评测夹具
+- id: live_20260804_SH600601
+  status: live_case
+  source: live_fill
+  mined_at: '2026-08-07 10:02:52'
+  account: live_manual_10k
+  instrument: SH600601
+  name: 方正科技
+  signal_day: '2026-08-03'
+  buy_day: '2026-08-04'
+  sell_day: '2026-08-06'
+  buy_price: 9.24
+  sell_price: 11.42
+  result: hit
+  result_return: 0.2359
+  hit_tier: 3
+  days_held: 2
+  catalysts: []
+  factor_brief:
+    last_close: 9.86
+    ret_5d: 0.0051
+    ret_20d: -0.3293
+    ret_60d: -0.2603
+    near_60d_high: -0.3783
+    vol_20d: 0.0606
+    vol_ratio: 0.85
+  reasons:
+  - 实盘 2026-08-04@9.24 → 2026-08-06@11.42 (+23.6%)
+  risk_tags: []
+  notes: 实盘 fills 达标回合；用于候选加权与评测夹具
+updated_at: '2026-08-07 10:02:52'

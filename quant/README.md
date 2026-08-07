@@ -257,13 +257,13 @@ python overlays/ta_veto/gate_report.py
 
 5~15 日收盘 **+10%** 赔率预测与跟踪；与 LGBM 主线、订单 **完全隔离**。完整说明见 **[docs/SWING_HUNTER.md](../docs/SWING_HUNTER.md)**。
 
-- **候选**：量化强势 Top30 + 近 3 日事件催化 + 跟踪延伸；硬伤规则过滤
-- **LLM**：Analyst → Bull/Bear → Judge；`strict` 无 predict 时 Judge **降一档** `standard`（仅重跑裁判，标记 `gate_tier`）
+- **候选**：量化强势 Top30 + 近 3 日事件催化 + 跟踪延伸（多账户并集）+ **短线动量/突破**；live 模式库加权
+- **LLM**：全部未过滤候选都深析（`MAX_LLM_CALLS=0`）；Analyst → Bull/Bear → Judge；`strict` 无 predict 时 Judge **降一档** `standard`（仅重跑裁判，标记 `gate_tier`）
 - **Delta**：活跃票每日只分析「今日新增」公告/舆情（轻量 LLM，省 token）
 - **舆情预采集**：分析前库内条目不足则 `collect_for_instrument`（不调 sentiment_memory 全量 LLM）
 - **跟踪**：收盘口径状态机（T+1 开盘入场，10 日 +10% hit / −5% stop）；`predict` 入 `tracker/`
-- **模式挖掘**：hit 终态 → `overlays/swing_hunter/swing_patterns.yaml`
-- **开关**：`configs/accounts/live_manual_10k.yaml` → `execution.use_swing_hunter: true`（evening 在舆情记忆之后，fail-open）
+- **模式挖掘**：hit 终态 → candidate；实盘 fills 达标 → `mine_live_cases.py` → `live_case`
+- **开关**：四账户 `execution.use_swing_hunter: true`；同日已有 `status=ok` 则跳过新预测 LLM（跟踪仍更新）
 - **产出**：`data/overlays/swing_hunter/{predictions,tracker,eval,catalog.json}`
 - **看板**：「短线猎手」页 — 日报卡片、LLM 评测表、预测/跟踪/模式库；API `/api/swing/*`
 
@@ -271,7 +271,13 @@ python overlays/ta_veto/gate_report.py
 # 日常（或 evening 自动）
 python overlays/swing_hunter/run_swing.py --date 2026-08-05 --account live_manual_10k
 python overlays/swing_hunter/run_swing.py --track-only          # 仅跟踪 + delta
-python overlays/swing_hunter/run_swing.py --dry-run --max-llm 5
+python overlays/swing_hunter/run_swing.py --dry-run              # 不调 LLM，全候选落盘
+python overlays/swing_hunter/run_swing.py --force               # 忽略同日幂等
+# 可选限流：--max-llm 5（默认 0=全部未过滤候选）
+
+# 实盘案例 → 模式库 / 断言
+python overlays/swing_hunter/mine_live_cases.py --account live_manual_10k
+python overlays/swing_hunter/assert_live_cases.py
 
 # LLM 双路评测（本地 Top15 + DeepSeek 复跑 Top5；结束 sync 看板 predictions）
 python overlays/swing_hunter/run_swing_eval.py --date 2026-08-05 --top-n 15 --refine-n 5

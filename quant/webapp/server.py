@@ -185,9 +185,8 @@ def daily_series(account: str) -> dict:
     d = RA.load_daily(account)
     if d.empty:
         return {"account": account, "dates": [], "series": {}}
-    acc = C.load_account(account) or {}
-    start = float(acc.get("start_capital", d.iloc[0]["nav"]))
-    cum_ret = (d["nav"] / start - 1.0)
+    # 累计收益用时间加权（日收益连乘），避免注资后改 start_capital 把历史段压成巨亏。
+    cum_ret = C.twr_cum_series(d["daily_ret"])
     cum_bench = (1 + d["bench_ret"].fillna(0)).cumprod() - 1
     cum_excess = (1 + d["excess_ret"].fillna(0)).cumprod() - 1
     return {
@@ -972,14 +971,42 @@ def api_swing_track_one(instrument: str):
     return SW.load_tracker(instrument.upper())
 
 
+@app.get("/api/swing/job")
+def api_swing_job():
+    """当前/最近一次短线猎手任务进度（供进度条与刷新恢复）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import job as SJ  # noqa: WPS433
+    return SJ.read_job()
+
+
 @app.post("/api/swing/run")
 def api_swing_run(request: Request,
                   account: str = "live_manual_10k",
                   dry_run: bool = False,
-                  track_only: bool = False):
-    """手动触发短线猎手（后台线程，纯建议层，不改订单）。"""
+                  track_only: bool = False,
+                  force: bool = True):
+    """手动触发短线猎手（后台线程，纯建议层，不改订单）。
+
+    页面点击默认 force=True，忽略同日已有预测，强制重跑 LLM。
+    """
     _require_full_access(request)
     _check(account)
+    sys.path.insert(0, str(QUANT))
+    from overlays.swing_hunter import job as SJ  # noqa: WPS433
+
+    running = SJ.read_job()
+    if running.get("status") == "running":
+        return {
+            "ok": True,
+            "queued": False,
+            "busy": True,
+            "job": running,
+            "account": account,
+            "dry_run": dry_run,
+            "track_only": track_only,
+            "log": str(LOG_DIR / f"swing_hunter_{datetime.now():%Y-%m-%d}.log"),
+        }
+
     log = LOG_DIR / f"swing_hunter_{datetime.now():%Y-%m-%d}.log"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     cmd = [PY, str(QUANT / "overlays" / "swing_hunter" / "run_swing.py"),
@@ -988,6 +1015,10 @@ def api_swing_run(request: Request,
         cmd.append("--dry-run")
     if track_only:
         cmd.append("--track-only")
+    if force:
+        cmd.append("--force")
+
+    job = SJ.start_job(account=account, dry_run=dry_run, track_only=track_only)
 
     def _bg():
         with log.open("a") as fh:
@@ -996,17 +1027,42 @@ def api_swing_run(request: Request,
             try:
                 proc = subprocess.Popen(
                     cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True,
+                    text=True, bufsize=1,
                     env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1"},
                 )
-                proc.wait()
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    fh.write(line)
+                    fh.flush()
+                    try:
+                        SJ.update_from_line(line)
+                    except Exception:
+                        pass
+                rc = proc.wait()
+                # run_swing 内部也会 finish_job；若进程异常退出再兜底
+                cur = SJ.read_job()
+                if cur.get("status") == "running":
+                    SJ.finish_job(
+                        ok=(rc == 0),
+                        message="短线猎手完成" if rc == 0 else f"退出码 {rc}",
+                    )
             except Exception as e:  # noqa: BLE001
                 fh.write(f"[job-error] {e}\n")
+                SJ.finish_job(ok=False, message=str(e)[:200])
 
     import threading
     threading.Thread(target=_bg, daemon=True).start()
-    return {"ok": True, "queued": True, "account": account,
-            "dry_run": dry_run, "track_only": track_only, "log": str(log)}
+    return {
+        "ok": True,
+        "queued": True,
+        "busy": False,
+        "job": SJ.read_job(),
+        "account": account,
+        "dry_run": dry_run,
+        "track_only": track_only,
+        "log": str(log),
+        "job_id": job.get("id"),
+    }
 
 
 @app.post("/api/run/{stage}/{account}")

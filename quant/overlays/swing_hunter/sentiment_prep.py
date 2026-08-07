@@ -56,8 +56,14 @@ def ensure_for_candidates(
     names: dict[str, str],
     *,
     min_items: int = MIN_ITEMS,
+    collect: bool | None = None,
 ) -> dict[str, Any]:
-    """对候选列表按需采集；返回统计。"""
+    """对候选列表按需采集；返回统计。
+
+    collect=None 时：候选数 > 20 则跳过联网采集（仅用库内材料刷新），
+    避免全量 LLM 前卡在逐票拉公告；小批量仍补齐舆情。
+    """
+    do_collect = bool(collect) if collect is not None else len(candidates) <= 20
     collected, skipped, failed = 0, 0, 0
     for c in candidates:
         inst = c["instrument"]
@@ -65,11 +71,21 @@ def ensure_for_candidates(
         if n_before >= min_items:
             skipped += 1
             continue
-        name = names.get(inst, "") or ""
-        added = collect_instrument(inst, name)
-        if added > 0 or n_before < min_items:
-            refresh_candidate_events(c)
-            collected += 1
+        if do_collect:
+            name = names.get(inst, "") or ""
+            added = collect_instrument(inst, name)
+            if added > 0 or n_before < min_items:
+                refresh_candidate_events(c)
+                collected += 1
+            else:
+                failed += 1
         else:
-            failed += 1
-    return {"collected": collected, "skipped": skipped, "failed": failed}
+            # 大批量：只从库刷新，不联网
+            refresh_candidate_events(c)
+            skipped += 1
+    return {
+        "collected": collected,
+        "skipped": skipped,
+        "failed": failed,
+        "network_collect": do_collect,
+    }

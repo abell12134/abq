@@ -24,6 +24,8 @@ execution:
   lot_size: 100
   redeploy_residual_cash: true
   exclude_boards: [chinext, star]
+  # 短线猎手（纯看板建议，共享产出；同日幂等跳过 LLM）
+  use_swing_hunter: true
   note: "对照线：LGBM+UMP，无 TA 否决；与 shadow_ta_sim 做 A/B。"
 
 review:

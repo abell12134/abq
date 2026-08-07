@@ -158,8 +158,8 @@ def evening(args, day: str) -> int:
         if not step("舆情长期记忆", mem, day, fatal=False):
             C.alert("WARN", "舆情长期记忆步骤异常（不影响下单）", day)
 
-    # 短线猎手（纯看板建议层）：先推进旧预测跟踪，再三路候选 → LLM 分档预测；
-    # 不改 orders/、不开账户；失败 fail-open，不影响主线下单。
+    # 短线猎手（纯看板建议层）：先推进旧预测跟踪，再四路候选 → LLM 分档预测；
+    # 不改 orders/、不开账户；同日已有成功预测则跳过 LLM；失败 fail-open。
     use_swing = args.swing_hunter or bool(
         cfg.get("execution", {}).get("use_swing_hunter"))
     if use_swing and args.account:
@@ -167,6 +167,8 @@ def evening(args, day: str) -> int:
                  "--date", day, "--account", args.account]
         if args.dry_run_swing:
             swing += ["--dry-run"]
+        if getattr(args, "force_swing", False):
+            swing += ["--force"]
         if not step("短线猎手预测", swing, day, fatal=False):
             C.alert("WARN", "短线猎手步骤异常（不影响下单，纯建议层）", day)
 
@@ -254,6 +256,8 @@ def main() -> int:
                    help="强制跑短线猎手预测（账户 use_swing_hunter 时也会自动跑）")
     p.add_argument("--dry-run-swing", action="store_true",
                    help="短线猎手 dry-run（不调 LLM，仅候选+跟踪）")
+    p.add_argument("--force-swing", action="store_true",
+                   help="短线猎手忽略同日已有预测，强制重跑 LLM")
     p.add_argument("--config", default=None,
                    help="传给 make_trade_plan.py 的实盘配置覆盖文件")
     p.add_argument("--account", default=None,

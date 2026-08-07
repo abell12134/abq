@@ -31,7 +31,16 @@ HORIZON_DAYS = 10       # 兑现窗口（交易日）
 # ---- 候选池参数 ----
 SIGNAL_TOP_N = 30       # 量化强势池：signals rank 前 N
 EVENT_LOOKBACK_DAYS = 3  # 事件催化池：近 N 日 raw 舆情/公告
-MAX_LLM_CALLS = 5       # 每日最多调 LLM 深度分析的候选数（成本控制）
+MAX_LLM_CALLS = 0       # 每日 LLM 深析上限；0=不截断，全部未过滤候选都跑 LLM
+
+# 第 4 路：短线动量/突破（不依赖 LGBM Top30）
+MOMENTUM_RET5_SOFT = 0.05       # ret_5d ≥ 5% 且放量
+MOMENTUM_VOL_RATIO = 1.3        # 量比门槛（与 soft 联用）
+MOMENTUM_RET5_HARD = 0.08       # ret_5d ≥ 8% 单独入池
+MOMENTUM_SCORE_BOOST = 0.15     # 动量路规则分加成
+PATTERN_SCORE_BOOST = 0.10      # live 模式相似度加成
+PATTERN_SIM_THRESHOLD = 0.55    # 模式相似度门槛（0~1）
+LIVE_PATTERN_STATUSES = frozenset({"live_case", "live"})
 
 # ---- 状态机 ----
 # watch（LLM 认为可观察但未达预测标准，不入跟踪）
@@ -176,6 +185,30 @@ def read_predictions(day: str) -> PredictionFile | None:
         return None
 
 
+def already_predicted_today(day: str) -> PredictionFile | None:
+    """同日已有成功态预测（status=ok + .done）则返回文件，供跨账户幂等跳过。"""
+    done = pred_path(day).with_suffix(".done")
+    if not done.exists():
+        return None
+    pf = read_predictions(day)
+    if pf and pf.status == "ok":
+        return pf
+    return None
+
+
+def mark_skip_meta(pf: PredictionFile, account: str | None) -> PredictionFile:
+    """记录后续账户因同日幂等而跳过 LLM。"""
+    meta = dict(pf.meta or {})
+    skipped = list(meta.get("skipped_by_accounts") or [])
+    if account and account not in skipped:
+        skipped.append(account)
+    meta["skipped_by_accounts"] = skipped
+    if "first_runner" not in meta:
+        meta["first_runner"] = meta.get("account")
+    pf.meta = meta
+    return pf
+
+
 def latest_prediction_day() -> str | None:
     """取最适合展示的预测日：优先非 dry_run、有 watch/predict 的日期。"""
     d = ROOT / "predictions"
@@ -211,8 +244,15 @@ def normalize_prediction(p: Prediction) -> Prediction:
     p.catalysts = [c for c in p.catalysts if c in CATALYST_TYPES][:4]
     p.risk_tags = [t for t in p.risk_tags if t in RISK_TAGS][:4]
     p.reasons = [str(r)[:120] for r in (p.reasons or [])][:3]
+    raw_tiers = p.target_tiers
+    if isinstance(raw_tiers, dict):
+        raw_tiers = [raw_tiers]
+    elif not isinstance(raw_tiers, list):
+        raw_tiers = []
     tiers = []
-    for t in (p.target_tiers or [])[:3]:
+    for t in raw_tiers[:3]:
+        if not isinstance(t, dict):
+            continue
         try:
             pct = float(t.get("pct", 0.0))
             prob = max(0.0, min(1.0, float(t.get("prob", 0.0))))

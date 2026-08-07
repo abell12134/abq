@@ -155,7 +155,7 @@
       <div class="sent-toolbar">
         <div>
           <h2 class="sent-title">短线猎手 · 10 日 +10% 预测</h2>
-          <p class="panel-desc">三路候选（量化强势/事件催化/跟踪延伸）→ LLM 多空辩论 → 分档预测 ·
+          <p class="panel-desc">四路候选（量化强势/事件催化/跟踪延伸/动量突破）→ LLM 多空辩论 → 分档预测 ·
             收盘口径跟踪（T+1 开盘入场，10 日内收盘 ≥+10% 记 hit，≤−5% 记止损）· 纯建议，不改订单</p>
         </div>
         <div class="sent-actions">
@@ -163,6 +163,16 @@
           <button id="swing-refresh" type="button">刷新</button>
           <button id="swing-run" type="button" class="btn-secondary">运行短线猎手</button>
         </div>
+      </div>
+      <div id="swing-progress" class="sent-progress hidden">
+        <div class="sent-progress-head">
+          <span id="swing-progress-label">短线猎手进行中…</span>
+          <span id="swing-progress-pct">0%</span>
+        </div>
+        <div class="sent-progress-track">
+          <div id="swing-progress-bar" class="sent-progress-bar"></div>
+        </div>
+        <div id="swing-progress-msg" class="sent-progress-msg">—</div>
       </div>
       <div id="swing-stats" class="cards"></div>
       <div id="swing-load-err" class="ops-summary hidden" style="color:var(--amber)"></div>

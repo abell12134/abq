@@ -16,6 +16,9 @@ execution:
   manual_order: false
   simulated_fill: next_open
   use_ump: true
+  # 短线猎手（纯看板建议）：四路候选 → LLM 分档预测；共享 data/overlays/swing_hunter/；
+  # 同日已有成功预测则跳过 LLM（跟踪仍更新）。失败 fail-open。
+  use_swing_hunter: true
   risk_check: true
   lot_size: 100
   # 等权 floor 取整会留下大量闲置现金；开启后用建仓剩余现金按分数顺位补整手（≤max_weight），

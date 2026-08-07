@@ -347,7 +347,7 @@ flowchart TD
   候选池（强势 Top30 + 事件催化 + 延伸）→ 硬伤过滤
          │
          ▼
-  舆情预采集（不足则 collect）→ LLM Top5（strict → 无 predict 则 standard 降档）
+  舆情预采集（不足则 collect）→ LLM 全候选深析（strict → 无 predict 则 standard 降档；可 --max-llm 限流）
          │
          ▼
   predictions/ + tracker/（predict 入跟踪）+ 日报.md

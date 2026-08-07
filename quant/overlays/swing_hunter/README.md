@@ -10,8 +10,10 @@
 cd quant
 ../quant-venv/bin/python overlays/swing_hunter/run_swing.py --date 2026-08-05
 ../quant-venv/bin/python overlays/swing_hunter/run_swing_eval.py --date 2026-08-05
+../quant-venv/bin/python overlays/swing_hunter/mine_live_cases.py
+../quant-venv/bin/python overlays/swing_hunter/assert_live_cases.py
 ```
 
 ## 数据
 
-`data/overlays/swing_hunter/` — `predictions/`、`tracker/`、`eval/`、`catalog.json`
+`data/overlays/swing_hunter/` — `predictions/`、`tracker/`、`eval/`（含 `cases/`）、`catalog.json`

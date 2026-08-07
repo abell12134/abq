@@ -862,6 +862,112 @@ document.getElementById("sent-rerun-one")?.addEventListener("click", () => {
 // ----------------- 短线猎手 -----------------
 const SWING_ACTION_LABEL = { predict: "预测", watch: "观察", reject: "否决" };
 const SWING_STANCE_LABEL = { hold: "持有", exit: "退出", watch: "观察" };
+const SWING_JOB_KEY = "swing_job_v1";
+let swingJobTimer = null;
+
+function saveSwingJobLocal(job) {
+  try {
+    if (!job || job.status === "idle") localStorage.removeItem(SWING_JOB_KEY);
+    else localStorage.setItem(SWING_JOB_KEY, JSON.stringify(job));
+  } catch (_) { /* ignore */ }
+}
+
+function renderSwingProgress(job) {
+  const box = document.getElementById("swing-progress");
+  if (!box || !job) return;
+  const st = job.status || "idle";
+  if (st === "idle") {
+    box.classList.add("hidden");
+    box.classList.remove("done", "error");
+    return;
+  }
+  box.classList.remove("hidden");
+  box.classList.toggle("done", st === "done");
+  box.classList.toggle("error", st === "error");
+  const pct = Math.max(0, Math.min(100, Number(job.pct) || 0));
+  const bar = document.getElementById("swing-progress-bar");
+  const pctEl = document.getElementById("swing-progress-pct");
+  const label = document.getElementById("swing-progress-label");
+  const msg = document.getElementById("swing-progress-msg");
+  if (bar) bar.style.width = pct + "%";
+  if (pctEl) pctEl.textContent = pct + "%";
+  const cur = job.current
+    ? `${job.current}${job.current_name ? " " + job.current_name : ""}`
+    : (job.account ? `账户 ${job.account}` : "候选池");
+  if (label) {
+    if (st === "running") label.textContent = `短线猎手进行中 · ${cur}`;
+    else if (st === "done") label.textContent = "短线猎手完成";
+    else if (st === "error") label.textContent = "短线猎手失败";
+    else label.textContent = "短线猎手状态";
+  }
+  if (msg) {
+    const counts = [];
+    if (job.done_count != null && job.total)
+      counts.push(`${job.done_count}/${job.total}`);
+    if (job.n_predict != null)
+      counts.push(`预测${job.n_predict}/观察${job.n_watch || 0}/否决${job.n_reject || 0}`);
+    const tail = counts.length ? `（${counts.join(" · ")}）` : "";
+    msg.textContent = (job.message || job.last_line || "—") + tail;
+  }
+}
+
+function stopSwingJobPoll() {
+  if (swingJobTimer) { clearInterval(swingJobTimer); swingJobTimer = null; }
+}
+
+async function pollSwingJobOnce() {
+  try {
+    const job = await getJSON("/api/swing/job");
+    renderSwingProgress(job);
+    saveSwingJobLocal(job);
+    const btn = document.getElementById("swing-run");
+    if (job.status === "running") {
+      if (btn) { btn.disabled = true; btn.textContent = "运行中…"; }
+    } else if (btn) {
+      btn.disabled = false;
+      btn.textContent = "运行短线猎手";
+    }
+    if (job.status === "done" || job.status === "error") {
+      stopSwingJobPoll();
+      try { await loadSwing(); } catch (_) { /* ignore */ }
+      return job;
+    }
+    if (job.status !== "running") stopSwingJobPoll();
+    return job;
+  } catch (e) {
+    console.warn("swing job poll", e);
+    return null;
+  }
+}
+
+function startSwingJobPoll() {
+  stopSwingJobPoll();
+  pollSwingJobOnce();
+  swingJobTimer = setInterval(pollSwingJobOnce, 2000);
+}
+
+async function resumeSwingJobIfAny() {
+  try {
+    const job = await getJSON("/api/swing/job");
+    if (job && (job.status === "running" || job.status === "done" || job.status === "error")) {
+      renderSwingProgress(job);
+      saveSwingJobLocal(job);
+      if (job.status === "running") startSwingJobPoll();
+      return;
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const raw = localStorage.getItem(SWING_JOB_KEY);
+    if (!raw) return;
+    const job = JSON.parse(raw);
+    if (job?.status === "running") {
+      renderSwingProgress(job);
+      startSwingJobPoll();
+    } else if (job) {
+      renderSwingProgress(job);
+    }
+  } catch (_) { /* ignore */ }
+}
 
 function swingActionBadge(action) {
   const a = action || "watch";
@@ -1316,6 +1422,8 @@ async function loadSwing() {
   const title = document.getElementById("swing-pred-title");
   if (title) title.textContent = `最新预测 · ${cat.prediction_day || "无"}`;
 
+  resumeSwingJobIfAny();
+
   renderSwingReport(report?.markdown || "", report?.meta || cat.prediction_meta);
   renderSwingEval(evalData?._error ? { days: [], markdown: "" } : evalData);
   renderSwingPatterns(patterns?._error ? { patterns: [] } : patterns);
@@ -1426,13 +1534,18 @@ document.getElementById("swing-run")?.addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "运行中…";
   try {
-    const r = await fetch("/api/swing/run?account=live_manual_10k", { method: "POST" });
+    const r = await fetch("/api/swing/run?account=live_manual_10k&force=true", { method: "POST" });
     const body = await r.json();
     if (!r.ok) throw new Error(body.detail || r.status);
-    alert("已后台启动短线猎手；约 1~5 分钟后点刷新查看（日志：" + (body.log || "") + "）");
+    const job = body.job || { status: "running", pct: 3, message: body.busy ? "已有任务进行中…" : "已启动…" };
+    renderSwingProgress(job);
+    saveSwingJobLocal(job);
+    startSwingJobPoll();
+    if (body.busy) {
+      // 不弹窗，进度条已展示当前任务
+    }
   } catch (e) {
     alert("启动失败：" + (e.message || e));
-  } finally {
     btn.disabled = false;
     btn.textContent = "运行短线猎手";
   }

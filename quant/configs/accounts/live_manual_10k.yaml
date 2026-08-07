@@ -28,7 +28,8 @@ execution:
   use_sentiment_veto: true
   # 舆情长期记忆：东财/财联社/新浪采集 + LLM 摘要 + 本地向量库；看板「舆情跟踪」页展示。
   use_sentiment_memory: true
-  # 短线猎手（纯看板建议）：三路候选 → LLM 分档预测（10日内收盘+10%口径）+ 收盘口径跟踪；
+  # 短线猎手（纯看板建议）：四路候选 → LLM 分档预测（10日内收盘+10%口径）+ 收盘口径跟踪；
+  # 共享 data/overlays/swing_hunter/；同日已有成功预测则跳过 LLM（跟踪仍更新）。
   # 不改 orders/、不开账户；看板「短线猎手」页展示。失败 fail-open。
   use_swing_hunter: true
   risk_check: true
