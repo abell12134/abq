@@ -87,8 +87,8 @@ def main() -> int:
     start_cap = float(account["start_capital"])
     last = d.iloc[-1]
     n = len(d)
-    cum_ret = float(last["nav"]) / start_cap - 1
-    cum_excess = float(np.prod(1 + d["excess_ret"].values) - 1)
+    cum_ret = C.twr_cum_return(d["daily_ret"])
+    cum_excess = C.twr_cum_return(d["excess_ret"])
     ann = 244
     ann_excess = (1 + cum_excess) ** (ann / n) - 1 if n else float("nan")
     avg_cash_ratio = float((d["cash"] / d["nav"]).mean()) if n else 0.0

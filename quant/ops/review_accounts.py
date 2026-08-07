@@ -71,8 +71,8 @@ def summary(account: str) -> dict:
         return {"account": account, "days": 0}
     start = float(acc.get("start_capital", d.iloc[0]["nav"]))
     last = d.iloc[-1]
-    cum_ret = float(last["nav"]) / start - 1
-    cum_excess = float(np.prod(1 + d["excess_ret"].values) - 1)
+    cum_ret = C.twr_cum_return(d["daily_ret"])
+    cum_excess = C.twr_cum_return(d["excess_ret"])
     fee = float(fills["fee"].sum()) if len(fills) else 0.0
     traded = float(fills["amount"].sum()) if len(fills) else 0.0
     return {

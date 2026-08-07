@@ -260,6 +260,44 @@ def fill_fee(side: str, amount: float) -> float:
     return round(comm + stamp, 2)
 
 
+def external_cashflow(acc: dict | None, day: str) -> float:
+    """账户在 day 的外部现金流（注资为正、撤资为负）。
+
+    读取 account.json 的 capital_injection（单条 dict 或 list）。注资不得计入投资收益，
+    否则会出现 08-04 把 +8k 注资算成 +66% 日收益、并把历史累计压成 -40% 的断崖。
+    """
+    if not acc:
+        return 0.0
+    raw = acc.get("capital_injection")
+    if not raw:
+        return 0.0
+    items = raw if isinstance(raw, list) else [raw]
+    total = 0.0
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        if str(it.get("date") or "") != day:
+            continue
+        total += float(it.get("amount") or 0.0)
+    return total
+
+
+def twr_cum_return(daily_rets) -> float:
+    """时间加权累计收益：Π(1+r_t)−1。日收益须已剔除外部现金流。"""
+    s = pd.Series(daily_rets, dtype=float).fillna(0.0)
+    if s.empty:
+        return 0.0
+    return float((1.0 + s).prod() - 1.0)
+
+
+def twr_cum_series(daily_rets) -> pd.Series:
+    """逐日时间加权累计收益序列。"""
+    s = pd.Series(daily_rets, dtype=float).fillna(0.0)
+    if s.empty:
+        return s
+    return (1.0 + s).cumprod() - 1.0
+
+
 # ---------------- 账户现金账本 ----------------
 def account_file(account: str | None = None) -> Path:
     return account_subdirs(account)["nav"] / "account.json"

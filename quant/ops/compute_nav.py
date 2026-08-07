@@ -79,7 +79,9 @@ def main() -> int:
     else:
         prev_nav = float(acc["start_capital"])
 
-    daily_ret = nav / prev_nav - 1 if prev_nav else 0.0
+    # 外部注资/撤资不计入投资收益（假设开盘前到账，从当日收益分母侧扣除）。
+    flow = C.external_cashflow(acc, day)
+    daily_ret = (nav - flow) / prev_nav - 1 if prev_nav else 0.0
     bench_ret = C.benchmark_return(day, prev) if prev else float("nan")
     # 建仓首日按收盘价入场，当日未承担持有期敞口，超额计 0（避免与基准全日收益错配）
     inception = len(hist) == 0
@@ -100,10 +102,11 @@ def main() -> int:
     out = out.sort_values("date")
     S.write_csv("daily", out, pth["daily"])
 
-    cum = nav / float(acc["start_capital"]) - 1
+    cum = C.twr_cum_return(out["daily_ret"])
+    flow_note = f"｜剔除注资 {flow:+,.2f}" if flow else ""
     print(f"[OK] {day} 净值 {nav:,.2f}（现金 {cash:,.2f} + 持仓 {position_value:,.2f}，"
           f"{len(hold)} 只）｜当日 {daily_ret:+.2%} 超额 {excess:+.2%} 换手 {turnover:.1%}"
-          f"｜累计 {cum:+.2%}")
+          f"｜累计(TWR) {cum:+.2%}{flow_note}")
 
     # 单日亏损硬熔断：写账户标志 + 剥掉当日订单 BUY（次日不再开新仓）
     halt = float(C.CFG.get("risk", {}).get("daily_loss_halt", 0.03))

@@ -57,8 +57,9 @@ def main() -> int:
     start_cap = float(acc["start_capital"])
 
     n = len(d)
-    cum_ret = float(cur["nav"]) / start_cap - 1
-    cum_excess = float(np.prod(1 + d["excess_ret"].values) - 1)
+    # 时间加权累计收益（日收益已剔除注资）；勿用 nav/start_capital（注资后会扭曲历史）
+    cum_ret = C.twr_cum_return(d["daily_ret"])
+    cum_excess = C.twr_cum_return(d["excess_ret"])
     ann_factor = ANN / n if n else 0
     ann_excess = (1 + cum_excess) ** ann_factor - 1 if n else float("nan")
     te = float(d["excess_ret"].std() * np.sqrt(ANN)) if n > 1 else float("nan")
