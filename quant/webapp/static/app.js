@@ -520,11 +520,13 @@ async function loadSentiment(keepSelection = true) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "sent-item" + (prev === it.instrument ? " active" : "");
-    b.innerHTML = `<div><span class="code">${it.instrument}</span>`
+    const codeOnly = String(it.instrument || "").replace(/^(SH|SZ)/, "");
+    b.innerHTML = `<div><span class="code">${codeOnly}</span>`
       + `<span class="name">${it.name || ""}</span></div>`
       + `<div class="snip">${it.headline || "—"}</div>`
       + `<span class="pill ${it.sentiment || ""}">${sentLabel(it.sentiment)} `
       + `${it.score == null ? "" : Number(it.score).toFixed(2)}</span>`;
+    b.dataset.instrument = it.instrument;
     b.onclick = () => selectSentiment(it.instrument);
     list.appendChild(b);
   });
@@ -536,7 +538,7 @@ async function loadSentiment(keepSelection = true) {
 async function selectSentiment(instrument) {
   sentInst = instrument;
   document.querySelectorAll(".sent-item").forEach(el => {
-    el.classList.toggle("active", el.querySelector(".code")?.textContent === instrument);
+    el.classList.toggle("active", el.dataset.instrument === instrument);
   });
   document.getElementById("sent-empty").classList.add("hidden");
   document.getElementById("sent-detail").classList.remove("hidden");
@@ -549,14 +551,40 @@ async function selectSentiment(instrument) {
     document.getElementById("sent-detail").classList.add("hidden");
     return;
   }
-  document.getElementById("sent-name").textContent =
-    `${r.name ? r.name + " · " : ""}${instrument}`;
-  document.getElementById("sent-headline").textContent = r.headline || "—";
+
+  const codeOnly = String(instrument).replace(/^(SH|SZ)/, "");
+  document.getElementById("sent-name").textContent = r.name || instrument;
+  const codePill = document.getElementById("sent-code-pill");
+  codePill.textContent = codeOnly || instrument;
+  codePill.className = "sent-pill " + (r.sentiment || "neutral");
+  document.getElementById("sent-date-pill").textContent =
+    r.date ? (`报告日 ${r.date}`) : "报告日 —";
+  document.getElementById("sent-sub").textContent =
+    `${instrument} · 舆情长期记忆 · 研究口径`;
+
+  const headline = r.headline || "—";
+  document.getElementById("sent-headline").textContent = headline;
+  const callout = document.getElementById("sent-callout");
+  const sent = (r.sentiment || "neutral").toLowerCase();
+  callout.className = "sent-callout"
+    + (sent === "positive" ? " ok" : sent === "negative" ? " danger" : sent === "mixed" ? " warn" : "");
+
   const scoreEl = document.getElementById("sent-score");
   scoreEl.textContent = r.score == null ? "—" : Number(r.score).toFixed(2);
   scoreEl.className = "value " + sentPolarity(r.sentiment);
-  document.getElementById("sent-stance").textContent =
-    `${sentLabel(r.sentiment)} · ${r.stance || "—"}`;
+  document.getElementById("sent-score-sub").textContent = sentLabel(r.sentiment);
+
+  document.getElementById("sent-stance").textContent = r.stance || "—";
+  document.getElementById("sent-stance").className = "value stance " + sentPolarity(r.sentiment);
+
+  const ann = r.announcement_count ?? 0;
+  const pol = r.policy_count ?? 0;
+  const newsN = r.news_count ?? 0;
+  const media = Math.max(0, Number(newsN || 0) - Number(ann || 0) - Number(pol || 0));
+  document.getElementById("sent-coverage").textContent =
+    newsN == null ? "—" : String(newsN);
+  document.getElementById("sent-coverage-sub").textContent =
+    `公告 ${ann} · 政策 ${pol} · 媒体 ${media}`;
 
   const tags = document.getElementById("sent-tags");
   tags.innerHTML = (r.risk_tags || []).map(t => `<span class="tag">${t}</span>`).join("");
@@ -582,6 +610,8 @@ async function selectSentiment(instrument) {
   // 舆情条目
   const newsBox = document.getElementById("sent-news");
   const news = r.news_preview || [];
+  document.getElementById("sent-news-cap").textContent =
+    news.length ? `最近 ${Math.min(news.length, 15)} 条` : "最近条目";
   if (!news.length) newsBox.innerHTML = '<div class="empty">暂无条目</div>';
   else {
     let h = "<table><thead><tr><th>时间</th><th>源</th><th>标题</th></tr></thead><tbody>";
@@ -624,19 +654,40 @@ async function selectSentiment(instrument) {
     `模型 ${meta.model || "—"}（${meta.endpoint || "—"}） · 条目 ${r.news_count ?? "—"}`
     + `（公告 ${r.announcement_count ?? "—"} / 政策 ${r.policy_count ?? "—"}）`
     + ` · 向量记忆 ${data.vector?.count ?? r.vector_count ?? "—"} 条`
-    + ` · 报告日 ${r.date || "—"}`;
+    + ` · 报告日 ${r.date || "—"} · 仅供研究参考，不构成投资建议`;
 
   // 近 90 天价格（约 65 个交易日≈三个月；取 70 根日 K 略留余量）
+  const retEl = document.getElementById("sent-ret");
+  const retSub = document.getElementById("sent-ret-sub");
+  const priceCap = document.getElementById("sent-price-cap");
   try {
     const q = await getJSON(`/api/quote/${instrument}?klt=101&n=70&_=${Date.now()}`);
     const canvas = document.getElementById("sentPriceChart");
     if (!q.ok || !q.klines?.length) {
       if (charts.sentPriceChart) { charts.sentPriceChart.destroy(); delete charts.sentPriceChart; }
+      retEl.textContent = "—";
+      retEl.className = "value";
+      retSub.textContent = "近 90 日累计";
+      priceCap.textContent = "日线 · 暂无行情";
     } else {
       const L = q.klines.map(k => k.date);
       const closes = q.klines.map(k => k.close);
       const base = closes.find(c => c != null);
+      const last = [...closes].reverse().find(c => c != null);
       const cum = closes.map(c => (base ? +((c / base - 1) * 100).toFixed(3) : null));
+      const retPct = (base && last) ? ((last / base - 1) * 100) : null;
+      if (retPct == null) {
+        retEl.textContent = "—";
+        retEl.className = "value";
+      } else {
+        const sign = retPct > 0 ? "+" : "";
+        retEl.textContent = `${sign}${retPct.toFixed(2)}%`;
+        retEl.className = "value " + (retPct > 0 ? "pos" : retPct < 0 ? "neg" : "");
+      }
+      retSub.textContent = last != null
+        ? `最新 ${Number(last).toFixed(2)} · ${L[0] || ""}→${L[L.length - 1] || ""}`
+        : "近 90 日累计";
+      priceCap.textContent = `日线 · ${L[0] || "?"} 至 ${L[L.length - 1] || "?"} · ${closes.length} 根`;
       mkChart(canvas, {
         type: "line",
         data: {
@@ -660,7 +711,12 @@ async function selectSentiment(instrument) {
         },
       });
     }
-  } catch (e) { console.error(e); }
+  } catch (e) {
+    console.error(e);
+    retEl.textContent = "—";
+    retEl.className = "value";
+    retSub.textContent = "近 90 日累计";
+  }
 }
 
 document.getElementById("sent-refresh")?.addEventListener("click", () => loadSentiment(true));

@@ -97,53 +97,105 @@
           <div id="sent-empty" class="empty">选择左侧标的，或先点击「重新分析」生成报告。</div>
           <div id="sent-detail" class="hidden">
             <div class="sent-hero">
-              <div>
-                <div id="sent-name" class="sent-name">—</div>
-                <div id="sent-headline" class="sent-headline">—</div>
+              <div class="sent-hero-left">
+                <div class="sent-title-row">
+                  <div id="sent-name" class="sent-name">—</div>
+                  <span id="sent-code-pill" class="sent-pill">—</span>
+                  <span id="sent-date-pill" class="sent-pill muted">—</span>
+                </div>
+                <div id="sent-sub" class="sent-sub">舆情长期记忆 · 研究口径</div>
               </div>
               <div class="sent-hero-right">
                 <button id="sent-rerun-one" type="button" class="btn-secondary">重新分析本股</button>
-                <div id="sent-score-box" class="sent-score-box">
-                  <div class="label">情绪分</div>
-                  <div id="sent-score" class="value">—</div>
-                  <div id="sent-stance" class="sub">—</div>
-                </div>
               </div>
             </div>
+
+            <div id="sent-callout" class="sent-callout">
+              <div class="sent-callout-label">一句话结论</div>
+              <div id="sent-headline" class="sent-callout-body">—</div>
+            </div>
+
+            <div id="sent-stats" class="sent-stats">
+              <div class="sent-stat">
+                <div class="label">情绪分</div>
+                <div id="sent-score" class="value">—</div>
+                <div id="sent-score-sub" class="sub">—</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">研究口径</div>
+                <div id="sent-stance" class="value stance">—</div>
+                <div id="sent-stance-sub" class="sub">非投资建议</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">窗口涨跌</div>
+                <div id="sent-ret" class="value">—</div>
+                <div id="sent-ret-sub" class="sub">近 90 日累计</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">证据覆盖</div>
+                <div id="sent-coverage" class="value">—</div>
+                <div id="sent-coverage-sub" class="sub">公告 / 政策 / 舆情</div>
+              </div>
+            </div>
+
             <div id="sent-tags" class="sent-tags"></div>
+
             <div class="chart-box sent-chart-box">
-              <h3>近 90 天走势（日线）</h3>
+              <div class="sent-sec-head">
+                <h3>近 90 天走势</h3>
+                <span id="sent-price-cap" class="sent-cap">日线 · 收盘价与窗口累计收益</span>
+              </div>
               <canvas id="sentPriceChart"></canvas>
             </div>
+
             <div class="sent-grid">
               <div class="sent-block">
                 <h3>分析摘要</h3>
                 <p id="sent-summary" class="sent-summary">—</p>
-                <h3>财报要点</h3>
-                <p id="sent-fundamentals" class="sent-summary">—</p>
-                <h3>政策影响</h3>
-                <p id="sent-policy" class="sent-summary">—</p>
+              </div>
+              <div class="sent-block sent-block-stack">
+                <div>
+                  <h3>财报要点</h3>
+                  <p id="sent-fundamentals" class="sent-summary compact">—</p>
+                </div>
+                <div>
+                  <h3>政策影响</h3>
+                  <p id="sent-policy" class="sent-summary compact">—</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="sent-grid">
+              <div class="sent-block">
                 <h3>跟踪要点</h3>
                 <ul id="sent-watch" class="sent-ul"></ul>
               </div>
               <div class="sent-block">
                 <h3>关键事件</h3>
-                <div id="sent-events" class="table-wrap"></div>
+                <div id="sent-events" class="table-wrap embedded"></div>
               </div>
             </div>
+
             <div class="sent-grid">
               <div class="sent-block">
-                <h3>公告 / 财报 / 舆情条目</h3>
-                <div id="sent-news" class="table-wrap"></div>
+                <div class="sent-sec-head">
+                  <h3>公告 / 财报 / 舆情</h3>
+                  <span id="sent-news-cap" class="sent-cap">最近条目</span>
+                </div>
+                <div id="sent-news" class="table-wrap embedded"></div>
               </div>
               <div class="sent-block">
-                <h3>历史报告 · 情绪轨迹</h3>
-                <div class="chart-box" style="margin:0;border:0;padding:0;background:transparent">
+                <div class="sent-sec-head">
+                  <h3>历史报告 · 情绪轨迹</h3>
+                  <span class="sent-cap">分数区间 −1 ~ 1</span>
+                </div>
+                <div class="chart-box sent-hist-chart">
                   <canvas id="sentHistChart" height="140"></canvas>
                 </div>
-                <div id="sent-hist" class="table-wrap" style="margin-top:10px"></div>
+                <div id="sent-hist" class="table-wrap embedded"></div>
               </div>
             </div>
+
             <div class="sent-meta" id="sent-meta"></div>
           </div>
         </div>
