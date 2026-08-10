@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from zoneinfo import ZoneInfo
 from .schema import ROOT
 
 JOB_FILE = ROOT / "job.json"
+LOCK_FILE = ROOT / "job.json.lock"
 TZ = ZoneInfo("Asia/Shanghai")
 
 
@@ -29,18 +32,67 @@ def read_job() -> dict[str, Any]:
     if not JOB_FILE.exists():
         return {"status": "idle", "message": "暂无任务"}
     try:
-        return json.loads(JOB_FILE.read_text())
-    except json.JSONDecodeError:
+        text = JOB_FILE.read_text()
+        # 容错：历史并发写可能拼出多段 JSON，取第一段
+        decoder = json.JSONDecoder()
+        obj, _ = decoder.raw_decode(text.lstrip())
+        return obj if isinstance(obj, dict) else {"status": "idle", "message": "状态文件损坏"}
+    except (json.JSONDecodeError, ValueError, TypeError, OSError):
         return {"status": "idle", "message": "状态文件损坏"}
 
 
-def write_job(payload: dict[str, Any]) -> dict[str, Any]:
+def _locked_write(
+    payload: dict[str, Any],
+    *,
+    only_if_running: bool = False,
+) -> dict[str, Any]:
+    """在锁内读-改-写；临时文件用唯一名，避免 web tee 与 run_swing 并发 rename 撞车。
+
+    only_if_running: 进度 tee 用。若任务已 finish，直接丢弃补丁，避免用旧快照
+    把 status=done / 最终 message·计数 又盖回 running。
+    """
+    import fcntl
+
     ensure_dir()
-    cur = read_job()
-    cur.update(payload)
-    cur["updated_at"] = _now()
-    JOB_FILE.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n")
-    return cur
+    LOCK_FILE.touch(exist_ok=True)
+    with LOCK_FILE.open("a+") as lf:
+        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+        try:
+            cur = read_job()
+            if only_if_running and cur.get("status") != "running":
+                return cur
+            cur.update(payload)
+            cur["updated_at"] = _now()
+            text = json.dumps(cur, ensure_ascii=False, indent=2) + "\n"
+            tmp = JOB_FILE.parent / f".job.{os.getpid()}.{uuid4().hex[:8]}.tmp"
+            try:
+                tmp.write_text(text)
+                os.replace(tmp, JOB_FILE)  # 原子替换；比 Path.replace 更稳
+            finally:
+                if tmp.exists():
+                    try:
+                        tmp.unlink()
+                    except OSError:
+                        pass
+            return cur
+        finally:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+
+
+def write_job(
+    payload: dict[str, Any],
+    *,
+    only_if_running: bool = False,
+) -> dict[str, Any]:
+    last_err: Exception | None = None
+    for attempt in range(5):
+        try:
+            return _locked_write(payload, only_if_running=only_if_running)
+        except OSError as e:  # noqa: PERF203
+            last_err = e
+            time.sleep(0.02 * (attempt + 1))
+    assert last_err is not None
+    raise last_err
 
 
 def start_job(*, account: str | None = None, dry_run: bool = False,
@@ -135,7 +187,7 @@ def tick_llm(
         "message": msg,
         "last_line": msg[:240],
         **counts,
-    })
+    }, only_if_running=True)
 
 
 def update_from_line(line: str) -> dict[str, Any] | None:
@@ -143,6 +195,8 @@ def update_from_line(line: str) -> dict[str, Any] | None:
     line = (line or "").rstrip()
     if not line:
         return None
+    # 真正的 status 校验在 write_job(only_if_running=True) 锁内做，
+    # 避免「读到 running → 子进程 finish → 本处写回」盖掉最终状态。
     job = read_job()
     if job.get("status") != "running":
         return None
@@ -176,11 +230,13 @@ def update_from_line(line: str) -> dict[str, Any] | None:
                 instrument=inst, name=(name or "").strip(),
                 action=action, reason=(reason or "").strip(),
             )
-    elif "[gate]" in line:
+    elif "[gate" in line.lower() or "[gate]" in line:
+        # 匹配 "[gate]" 汇总行与 "  [gate 2/15]" 进度行
         patch.update(pct=94, message="门槛降档裁判中…", phase="gate")
     elif "[DONE]" in line:
-        patch.update(pct=98, message="正在写报告…", phase="finishing")
+        # 不改 message：最终文案由 run_swing.finish_job 写入
+        patch.update(pct=98, phase="finishing")
     elif "[WARN] gate" in line:
         patch.update(message=f"gate 告警：{line[:100]}", phase="gate")
 
-    return write_job(patch)
+    return write_job(patch, only_if_running=True)

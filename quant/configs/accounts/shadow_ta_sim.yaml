@@ -3,7 +3,7 @@ account:
   # TA 定性否决影子线：与 live_manual_10k 同参，mode=simulated，开启 use_ta_veto。
   # 过门禁前不得改 live；对照账户见 shadow_ctrl_sim。
   mode: simulated
-  initial_capital: 12000
+  initial_capital: 11016
   target_min_positions: 5
   target_max_positions: 10
   review_min_days: 40

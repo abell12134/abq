@@ -210,30 +210,31 @@ def mark_skip_meta(pf: PredictionFile, account: str | None) -> PredictionFile:
 
 
 def latest_prediction_day() -> str | None:
-    """取最适合展示的预测日：优先非 dry_run、有 watch/predict 的日期。"""
+    """取最适合展示的预测日。
+
+    优先「日历日最新」的有效结果，而不是「watch 数量最多」的旧日——
+    否则新跑完的 08-07（137 watch + 8 predict）会被更旧的 08-06（145 watch）压住，
+    看板上每日报告看起来像没更新。
+    """
     d = ROOT / "predictions"
     if not d.exists():
         return None
     days = sorted(p.stem for p in d.glob("????-??-??.json"))
     if not days:
         return None
-    best_day: str | None = None
-    best_score = -1
-    for day in reversed(days):
+
+    def _rank(day: str) -> tuple:
         pf = read_predictions(day)
         if not pf:
-            continue
-        score = 0
-        if pf.status not in {"dry_run", "fail_open"}:
-            score += 100
-        useful = sum(1 for p in pf.predictions if p.action in {"predict", "watch"})
-        score += useful * 2
-        if pf.meta.get("source") == "eval":
-            score += 50
-        if score > best_score:
-            best_score = score
-            best_day = day
-    return best_day or days[-1]
+            return (0, 0, 0, 0, day)
+        ok = 1 if pf.status not in {"dry_run", "fail_open"} else 0
+        n_pred = sum(1 for p in pf.predictions if p.action == "predict")
+        n_watch = sum(1 for p in pf.predictions if p.action == "watch")
+        useful = 1 if (n_pred + n_watch) > 0 else 0
+        # 有效状态 > 有观察/预测内容 > 有 predict > 日期新
+        return (ok, useful, 1 if n_pred > 0 else 0, day)
+
+    return max(days, key=_rank)
 
 
 def normalize_prediction(p: Prediction) -> Prediction:

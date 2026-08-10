@@ -76,21 +76,29 @@ def run(
     max_llm: int = MAX_LLM_CALLS,
     skip_delta: bool = False,
     force: bool = False,
+    force_llm: str | None = None,
 ) -> int:
-    day = day or datetime.now(TZ).strftime("%Y-%m-%d")
+    # 默认用 Qlib 最新交易日，避免「自然日今天」无行情时全员被标停牌、LLM=0
+    if not day:
+        try:
+            day = C.latest_trading_day()
+        except Exception:  # noqa: BLE001
+            day = datetime.now(TZ).strftime("%Y-%m-%d")
     store.ensure_dirs()
     cur = JOB.read_job()
     if cur.get("status") != "running":
         JOB.start_job(account=account, dry_run=dry_run, track_only=track_only, day=day)
     else:
         JOB.write_job({"day": day, "account": account, "dry_run": dry_run,
-                       "track_only": track_only})
-    print(f"[swing_hunter] day={day} account={account} dry_run={dry_run} force={force}")
+                       "track_only": track_only, "force_llm": force_llm})
+    print(f"[swing_hunter] day={day} account={account} dry_run={dry_run} "
+          f"force={force} force_llm={force_llm or 'auto'}")
 
     try:
         rc = _run_impl(
             day=day, account=account, dry_run=dry_run, track_only=track_only,
             max_llm=max_llm, skip_delta=skip_delta, force=force,
+            force_llm=force_llm,
         )
         return rc
     except Exception as e:  # noqa: BLE001
@@ -106,6 +114,7 @@ def _run_impl(
     max_llm: int,
     skip_delta: bool,
     force: bool,
+    force_llm: str | None = None,
 ) -> int:
     JOB.set_phase("track", "跟踪更新中…", pct=6)
     tsum = tracker.run_tracking(day)
@@ -189,6 +198,38 @@ def _run_impl(
     print(f"[OK] 待 LLM 深析 {len(actionable)} 只"
           f"{'' if int(max_llm) <= 0 else f'（上限 max_llm={max_llm}）'}")
     JOB.set_llm_total(len(actionable))
+    if not actionable:
+        # 常见原因：指定日无行情 → trade_status 全停牌
+        n_suspend = sum(1 for c in cands if c.get("filter_reason") == "停牌")
+        msg = (f"无可深析候选（硬伤过滤 {built['n_filtered']}/"
+               f"{len(cands)}，其中停牌 {n_suspend}）。"
+               f"请确认 day={day} 行情已入库，或先跑数据更新。")
+        print(f"[WARN] {msg}")
+        JOB.finish_job(ok=False, message=msg)
+        # 仍落盘便于复盘
+        preds = []
+        for c in cands:
+            pred = A.dry_run_prediction(c)
+            if c.get("filtered"):
+                pred.action = "reject"
+                pred.reasons = [f"硬伤过滤：{c.get('filter_reason')}"]
+                pred.meta["rule_filtered"] = True
+            preds.append(normalize_prediction(pred))
+        pf = PredictionFile(
+            date=day, status="fail_open", universe_size=built["universe_size"],
+            candidates=[c["instrument"] for c in cands], predictions=preds,
+            fail_reason=msg,
+            meta={"account": account, "first_runner": account, "n_llm_ok": 0,
+                  "pool_stats": {
+                      "n_signal_pool": built.get("n_signal_pool"),
+                      "n_momentum": built.get("n_momentum"),
+                      "n_extension": built.get("n_extension"),
+                      "n_filtered": built.get("n_filtered"),
+                  }},
+        )
+        write_predictions(pf)
+        RPT.write_daily_report(day, pf)
+        return 1
 
     names = _lookup_names([c["instrument"] for c in actionable])
     # 无舆情则采集后再刷新 events
@@ -215,7 +256,8 @@ def _run_impl(
             llm_traces.append({})
         else:
             try:
-                pred, trace = analyze_with_alert(c, name, market_notes, day)
+                pred, trace = analyze_with_alert(
+                    c, name, market_notes, day, force_llm=force_llm)
                 n_llm_ok += 1
                 llm_traces.append(trace)
             except Exception:  # noqa: BLE001
@@ -249,9 +291,23 @@ def _run_impl(
             for p in predictions
         ]
         try:
-            JOB.set_phase("gate", "门槛降档裁判中…", pct=94)
+            JOB.set_phase("gate", "门槛降档裁判中（Top15）…", pct=94)
+
+            def _gate_prog(i, total, inst, action):
+                pct = 94 + int(4 * i / max(total, 1))
+                JOB.write_job({
+                    "pct": min(98, pct),
+                    "phase": "gate",
+                    "message": f"[gate {i}/{total}] {inst}: {action}",
+                    "current": inst,
+                })
+                print(f"  [gate {i}/{total}] {inst}: {action}", flush=True)
+
             new_rows, new_traces, gate_info = A.apply_gate_fallback(
                 actionable, names, stub_rows, llm_traces,
+                force_llm=force_llm,
+                max_rerun=15,
+                on_progress=_gate_prog,
             )
             if gate_info.get("fallback_used"):
                 print(f"[gate] 严格档 predict=0 → 降档 standard，"
@@ -334,9 +390,11 @@ def _run_impl(
 
 
 def analyze_with_alert(cand: dict[str, Any], name: str,
-                       market_notes: list[str], day: str):
+                       market_notes: list[str], day: str,
+                       force_llm: str | None = None):
     try:
-        return A.analyze_candidate(cand, name=name, market_notes=market_notes)
+        return A.analyze_candidate(
+            cand, name=name, market_notes=market_notes, force_llm=force_llm)
     except Exception as e:  # noqa: BLE001
         C.alert("WARN", f"短线猎手 LLM 分析失败 {cand['instrument']}: {e}", day)
         raise
@@ -351,6 +409,8 @@ def main() -> int:
     p.add_argument("--skip-delta", action="store_true", help="跳过活跃票 delta LLM")
     p.add_argument("--force", action="store_true",
                    help="忽略同日已有预测，强制重跑新预测 LLM")
+    p.add_argument("--force-llm", default=None, choices=["peak", "offpeak"],
+                   help="强制 LLM 路由；默认按时段自动（高峰本地 / 闲时 DeepSeek）")
     p.add_argument("--max-llm", type=int, default=MAX_LLM_CALLS,
                    help="LLM 深析上限；0=全部未过滤候选（默认）")
     args = p.parse_args()
@@ -359,6 +419,7 @@ def main() -> int:
         day=args.date, account=account, dry_run=args.dry_run,
         track_only=args.track_only, max_llm=args.max_llm,
         skip_delta=args.skip_delta, force=args.force,
+        force_llm=args.force_llm,
     )
 
 

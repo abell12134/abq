@@ -257,16 +257,23 @@ def apply_gate_fallback(
     force_llm: str | None = None,
     initial_tier: str = "strict",
     fallback_tier: str = "standard",
+    max_rerun: int = 15,
+    on_progress: Any = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """
     若 initial_tier 下无 predict，则仅重跑 Judge 降一档；标记 gate_tier / gate_fallback。
     rows: run_one 风格 dict 列表（含 prediction）；与 candidates/traces 同序。
+
+    max_rerun: 全量候选时只对 rule_score/swing 最高的前 N 只重跑 Judge，
+    避免 100+ 只全量降档卡死（页面进度也会长时间停在 94%）。
+    on_progress: 可选回调 (i, total, instrument, action) -> None
     """
     gate_info: dict[str, Any] = {
         "initial_tier": initial_tier,
         "applied_tier": initial_tier,
         "fallback_tier": fallback_tier,
         "fallback_used": False,
+        "max_rerun": max_rerun,
         "n_predict_initial": sum(
             1 for r in rows if (r.get("prediction") or {}).get("action") == "predict"
         ),
@@ -285,11 +292,28 @@ def apply_gate_fallback(
 
     new_rows = list(rows)
     new_traces = list(traces)
-    for i, (c, row, trace) in enumerate(zip(candidates, rows, traces)):
+
+    # 按 swing_score / rule_score 优先，只重跑前 max_rerun
+    ranked = sorted(
+        range(len(candidates)),
+        key=lambda i: (
+            -float((rows[i].get("prediction") or {}).get("swing_score")
+                   or candidates[i].get("rule_score") or 0),
+            candidates[i].get("instrument") or "",
+        ),
+    )
+    if max_rerun and max_rerun > 0:
+        ranked = ranked[: int(max_rerun)]
+    gate_info["n_rerun"] = len(ranked)
+
+    for j, i in enumerate(ranked, 1):
+        c, row, trace = candidates[i], rows[i], traces[i]
         inst = c["instrument"]
         name = names.get(inst, "") or ""
         summary, bull, bear = _extract_debate(trace)
         if not summary:
+            if on_progress:
+                on_progress(j, len(ranked), inst, "skip")
             continue
         pred, jtrace = rerun_judge(
             c, name, summary, bull, bear,
@@ -328,6 +352,8 @@ def apply_gate_fallback(
         merged_trace["gate_tier"] = fallback_tier
         merged_trace["gate_prev_tier"] = initial_tier
         new_traces[i] = merged_trace
+        if on_progress:
+            on_progress(j, len(ranked), inst, pred.action)
 
     gate_info["n_predict_final"] = sum(
         1 for r in new_rows if (r.get("prediction") or {}).get("action") == "predict"

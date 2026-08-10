@@ -1017,6 +1017,7 @@ def api_swing_run(request: Request,
         cmd.append("--track-only")
     if force:
         cmd.append("--force")
+    # 不强制路由：高峰走本地 Ollama（peak），闲时/失败回落 DeepSeek（offpeak）
 
     job = SJ.start_job(account=account, dry_run=dry_run, track_only=track_only)
 
