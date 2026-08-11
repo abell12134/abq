@@ -1,8 +1,9 @@
 account:
   name: shadow_ta_sim
-  # TA 定性否决影子线：与 live_manual_10k 同参，mode=simulated，开启 use_ta_veto。
-  # 过门禁前不得改 live；对照账户见 shadow_ctrl_sim。
-  mode: simulated
+  # TA 定性否决影子线：与 live_manual_10k 同参，开启 use_ta_veto。
+  # 2026-08 起按实盘运行（约 11k、常满仓）：系统出单 → 人工下单 → record_fills 回填。
+  # 过门禁前不得把 use_ta_veto 开到 live_manual_10k；对照账户见 shadow_ctrl_sim。
+  mode: manual
   initial_capital: 11016
   target_min_positions: 5
   target_max_positions: 10
@@ -17,7 +18,7 @@ strategy:
   max_positions: 10
 
 execution:
-  manual_order: false
+  manual_order: true
   simulated_fill: next_open
   use_ump: true
   use_ta_veto: true
@@ -44,7 +45,7 @@ execution:
   exclude_boards: [chinext, star]
   # 短线猎手（纯看板建议，共享产出；同日幂等跳过 LLM）
   use_swing_hunter: true
-  note: "影子线：LGBM+UMP+TA否决(公告/新闻/基本面+多轮辩论)，次日开盘价模拟成交。"
+  note: "TA实盘影子线：LGBM+UMP+TA否决；次日开盘人工下单，收盘后 record_fills 回填。"
 
 review:
   benchmark_annual_excess: 0.093

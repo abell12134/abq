@@ -339,22 +339,43 @@ def main() -> int:
     sell_set = set(sell_final)
     kept_after_sell = [h for h in held_inst if h not in sell_set]
 
+    # 买入预算 = 账上现金 + 本单卖出回款（先卖后买）；禁止透支出「买不起」的买单。
+    # 历史 bug：主买入只按 topk 缺口与单票预算算股数，满仓现金=0 时仍会为补仓位
+    # 发出买单，二次部署日志出现「闲置为负」。
+    sell_proceeds = sum(float(prices.get(s, 0)) * int(cur_shares.get(s, 0))
+                        for s in sell_final)
+    if holdings.empty:
+        buy_budget = float(total)
+    else:
+        buy_budget = float(avail_cash) + float(sell_proceeds)
+    cash_spent = 0.0
+    skipped_no_cash: list[str] = []
+
     for inst in buy_candi:
         if n_bought >= n_buy:
             break
         if inst not in prices.index or prices[inst] <= 0:
             continue
-        shares = int(per_name / prices[inst] / LOT) * LOT
+        price = float(prices[inst])
+        shares = int(per_name / price / LOT) * LOT
         if shares <= 0:
             skipped_unaffordable.append(inst)
             continue
+        # 按剩余现金缩手；连 1 手都买不起则顺延下一只（可能更便宜）
+        max_by_cash = int((buy_budget - cash_spent) / price / LOT) * LOT
+        if max_by_cash <= 0:
+            skipped_no_cash.append(inst)
+            continue
+        if max_by_cash < shares:
+            shares = max_by_cash
         if use_industry and would_breach(
                 kept_after_sell + [t["instrument"] for t in trades if t["side"] == "BUY"],
                 inst, set(), ind_max, bench_ind, mapping=ind_map):
             skipped_industry.append(inst)
             continue
         trades.append({"instrument": inst, "side": "BUY", "shares": shares,
-                       "ref_price": round(float(prices[inst]), 2)})
+                       "ref_price": round(price, 2)})
+        cash_spent += shares * price
         n_bought += 1
     # 2b) 残余现金二次部署（按账户配置 execution.redeploy_residual_cash 开启）：
     #     小资金 + 100 股整手下，等权 floor 取整会留下大量闲置现金（1.2 万实盘线一度 26%），
@@ -363,12 +384,7 @@ def main() -> int:
     #     把闲置压到 1 手以内。仅对开启该开关的账户生效，研究线等默认行为不变。
     redeploy_left = None
     if (not halt_active) and CFG.get("execution", {}).get("redeploy_residual_cash", False):
-        if holdings.empty:
-            buy_cash = total
-        else:
-            sell_proceeds = sum(float(prices.get(s, 0)) * int(cur_shares.get(s, 0))
-                                for s in sell_final)
-            buy_cash = float(avail_cash) + sell_proceeds
+        buy_cash = buy_budget
         spent = sum(t["shares"] * float(prices.get(t["instrument"], 0))
                     for t in trades if t["side"] == "BUY")
         cash_left = buy_cash - spent
@@ -463,6 +479,9 @@ def main() -> int:
     if skipped_unaffordable:
         print(f"[affordability] {len(skipped_unaffordable)} 只高价股按单票预算 "
               f"{per_name:,.0f} 元凑不齐整手，已顺延买入名次靠后标的")
+    if skipped_no_cash:
+        print(f"[cash] 买入预算 {buy_budget:,.0f} 元不足 1 手，已跳过 "
+              f"{len(skipped_no_cash)} 只候选（满仓/无卖出回款时不透支出买单）")
     if skipped_industry:
         print(f"[industry] {len(skipped_industry)} 只买入候选会使行业偏离 "
               f"> {ind_max:.0%}（相对中证500等权近似），已跳过")
