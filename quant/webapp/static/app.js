@@ -29,10 +29,11 @@ function mkChart(canvas, cfg) {
   charts[key] = new Chart(canvas, cfg);
 }
 
+// 暗色分类色：略降 lightness，避免暗底上过跳；账户色互不撞色。
 const COLORS = {
-  research: "#4f9cf9", live: "#d29922", bench: "#8b98a9",
-  green: "#3fb950", red: "#f85149",
-  shadow_ctrl: "#a371f7", shadow_ta: "#3fb950",
+  research: "#3b82d6", live: "#c08b1a", bench: "#8b98a9",
+  green: "#2ea043", red: "#e5534b",
+  shadow_ctrl: "#8b5cf6", shadow_ta: "#2a9d8f",
 };
 const ACCOUNT_COLORS = {
   research_sim_100k: COLORS.research,
@@ -42,7 +43,7 @@ const ACCOUNT_COLORS = {
 };
 const lineDS = (label, data, color, fill = false) => ({
   label, data, borderColor: color, backgroundColor: color + "33",
-  borderWidth: 2, pointRadius: 0, tension: .2, fill,
+  borderWidth: 2, pointRadius: 0, tension: 0, fill,
 });
 const baseOpts = {
   responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
@@ -274,7 +275,7 @@ async function loadAccount(account) {
 }
 
 // 个股每日收盘（近一月）：累计涨幅多线图 + 汇总表
-const POS_LINE_COLORS = ["#4f9cf9", "#d29922", "#3fb950", "#a371f7", "#f85149",
+const POS_LINE_COLORS = ["#3b82d6", "#c08b1a", "#2ea043", "#8b5cf6", "#e5534b", "#2a9d8f",
   "#56d4dd", "#e3b341", "#db61a2", "#8b98a9", "#2ea043", "#f0883e", "#6cb6ff"];
 
 function renderPosDaily(panel, chartKey, data) {
@@ -372,7 +373,7 @@ async function loadStock() {
 
   const L = q.klines.map(k => k.date);
   const up = q.klines.map(k => k.close >= k.open);
-  const RED = "#f85149", GREEN = "#3fb950";
+  const RED = COLORS.red, GREEN = COLORS.green;
   const colors = up.map(u => u ? RED : GREEN);
   // 蜡烛：影线([low,high]) + 实体([open,close]) 两个浮动柱叠加（grouped:false 同位重叠）
   mkChart(document.getElementById("smK"), {
@@ -429,7 +430,7 @@ async function loadCompare() {
   const L = c.common_days.map(d => d.date);
   mkChart(document.getElementById("cmpChart"), {
     type: "bar",
-    data: { labels: L, datasets: [{ label: "日收益差(实盘-研究)%", data: c.common_days.map(d => d.gap), backgroundColor: c.common_days.map(d => d.gap >= 0 ? "#3fb95099" : "#f8514999") }] },
+    data: { labels: L, datasets: [{ label: "日收益差(实盘-研究)%", data: c.common_days.map(d => d.gap), backgroundColor: c.common_days.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99") }] },
     options: baseOpts,
   });
   renderTable(document.getElementById("cmp-fills"), c.fill_diff,
@@ -687,25 +688,23 @@ async function selectSentiment(instrument) {
       retSub.textContent = last != null
         ? `最新 ${Number(last).toFixed(2)} · ${L[0] || ""}→${L[L.length - 1] || ""}`
         : "近 90 日累计";
-      priceCap.textContent = `日线 · ${L[0] || "?"} 至 ${L[L.length - 1] || "?"} · ${closes.length} 根`;
+      priceCap.textContent = `日线累计% · ${L[0] || "?"} 至 ${L[L.length - 1] || "?"} · ${closes.length} 根`;
+      // 单轴：窗口累计收益（起点归零）。价格见上方「窗口涨跌」卡片，避免双 Y 轴量纲混淆。
       mkChart(canvas, {
         type: "line",
         data: {
           labels: L,
           datasets: [
-            { ...lineDS("收盘价", closes, COLORS.research), yAxisID: "y" },
-            { ...lineDS("窗口累计%", cum, COLORS.live), yAxisID: "y1" },
+            lineDS("窗口累计%", cum, COLORS.research, true),
           ],
         },
         options: {
           ...baseOpts,
           scales: {
             x: baseOpts.scales.x,
-            y: { ...baseOpts.scales.y, position: "left", title: { display: true, text: "价格", color: "#8b98a9" } },
-            y1: {
-              position: "right", ticks: { color: "#8b98a9" },
-              grid: { drawOnChartArea: false },
-              title: { display: true, text: "累计%", color: "#8b98a9" },
+            y: {
+              ...baseOpts.scales.y,
+              title: { display: true, text: "累计%（起点归零）", color: "#8b98a9" },
             },
           },
         },
@@ -757,7 +756,7 @@ function renderSentProgress(job) {
   const pctEl = document.getElementById("sent-progress-pct");
   const label = document.getElementById("sent-progress-label");
   const msg = document.getElementById("sent-progress-msg");
-  if (bar) bar.style.width = pct + "%";
+  if (bar) bar.style.setProperty("--p", (pct / 100).toFixed(4));
   if (pctEl) pctEl.textContent = pct + "%";
   const target = job.instrument || (job.account ? `账户 ${job.account}` : "跟踪标的");
   if (label) {
@@ -945,7 +944,7 @@ function renderSwingProgress(job) {
   const pctEl = document.getElementById("swing-progress-pct");
   const label = document.getElementById("swing-progress-label");
   const msg = document.getElementById("swing-progress-msg");
-  if (bar) bar.style.width = pct + "%";
+  if (bar) bar.style.setProperty("--p", (pct / 100).toFixed(4));
   if (pctEl) pctEl.textContent = pct + "%";
   const cur = job.current
     ? `${job.current}${job.current_name ? " " + job.current_name : ""}`

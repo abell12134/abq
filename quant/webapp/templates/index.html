@@ -36,7 +36,8 @@
     <section id="overview" class="panel active">
       <div id="indices" class="cards indices-strip"></div>
       <div id="cards" class="cards"></div>
-      <div class="chart-box"><h3>累计收益对比（%）</h3><canvas id="ovChart"></canvas></div>
+      <div class="chart-box"><h2>累计收益对比（%）</h2><canvas id="ovChart"></canvas></div>
+      <p class="panel-desc">涨跌色口径：红涨绿跌（与 K 线一致）</p>
     </section>
 
     <!-- 账户页（模板，JS 克隆填充） -->
@@ -48,14 +49,14 @@
     <!-- 双线对比 -->
     <section id="compare" class="panel">
       <div id="cmp-summary"></div>
-      <div class="chart-box"><h3>共同交易日 日收益差（实盘-研究, %）</h3><canvas id="cmpChart"></canvas></div>
-      <h3>成交偏差（实盘相对研究线，正=更差）</h3>
+      <div class="chart-box"><h2>共同交易日 日收益差（实盘-研究, %）</h2><canvas id="cmpChart"></canvas></div>
+      <h2>成交偏差（实盘相对研究线，正=更差）</h2>
       <div id="cmp-fills" class="table-wrap"></div>
     </section>
 
     <!-- 操作清单 -->
     <section id="daily-ops" class="panel">
-      <p class="panel-desc">各账户最新调仓清单：订单日 → 执行日；simulated 模式 postclose 自动成交。</p>
+      <p class="panel-desc">各账户最新调仓清单：订单日对应次日执行；模拟账户由 postclose 自动成交，人工账户需回填。</p>
       <div id="daily-ops-list"></div>
     </section>
 
@@ -143,7 +144,7 @@
             <div class="chart-box sent-chart-box">
               <div class="sent-sec-head">
                 <h3>近 90 天走势</h3>
-                <span id="sent-price-cap" class="sent-cap">日线 · 收盘价与窗口累计收益</span>
+                <span id="sent-price-cap" class="sent-cap">日线 · 窗口累计收益（起点归零）</span>
               </div>
               <canvas id="sentPriceChart"></canvas>
             </div>
@@ -230,23 +231,23 @@
       <div id="swing-load-err" class="ops-summary hidden" style="color:var(--amber)"></div>
       <div class="swing-grid">
         <div class="swing-col-main">
-          <h3>每日报告</h3>
+          <h2>每日报告</h2>
           <div id="swing-report-meta" class="swing-report-meta"></div>
           <div id="swing-report" class="swing-doc-wrap"></div>
-          <h3>活跃跟踪</h3>
+          <h2>活跃跟踪</h2>
           <div id="swing-active" class="table-wrap"></div>
-          <h3 id="swing-pred-title">最新预测</h3>
+          <h2 id="swing-pred-title">最新预测</h2>
           <div id="swing-preds" class="table-wrap"></div>
-          <h3>已结算记录（近）</h3>
+          <h2>已结算记录（近）</h2>
           <div id="swing-settled" class="table-wrap"></div>
         </div>
         <div class="swing-col-side">
-          <h3>LLM 评测</h3>
+          <h2>LLM 评测</h2>
           <div class="sent-actions" style="margin-bottom:8px">
             <select id="swing-eval-day" class="sent-select"></select>
           </div>
           <div id="swing-eval" class="swing-doc-wrap swing-eval-wrap"></div>
-          <h3>模式库 <span id="swing-patterns-count" class="muted-tag"></span></h3>
+          <h2>模式库 <span id="swing-patterns-count" class="muted-tag"></span></h2>
           <div id="swing-patterns" class="table-wrap"></div>
         </div>
       </div>
@@ -271,11 +272,11 @@
 
     <!-- 告警/调度 -->
     <section id="alerts" class="panel">
-      <h3 id="visit-stats-title" class="hidden">站点访问</h3>
+      <h2 id="visit-stats-title" class="hidden">站点访问</h2>
       <div id="visit-stats" class="table-wrap hidden"></div>
-      <h3>定时任务</h3>
+      <h2>定时任务</h2>
       <div id="jobs" class="table-wrap"></div>
-      <h3>最近告警</h3>
+      <h2>最近告警</h2>
       <div id="alert-list" class="table-wrap"></div>
     </section>
   </main>
@@ -283,22 +284,22 @@
   <template id="account-tpl">
     <div class="acct-cards cards"></div>
     <div class="chart-grid">
-      <div class="chart-box"><h3>净值</h3><canvas class="navChart"></canvas></div>
-      <div class="chart-box"><h3>累计收益 vs 基准（%）</h3><canvas class="retChart"></canvas></div>
+      <div class="chart-box"><h2>净值</h2><canvas class="navChart"></canvas></div>
+      <div class="chart-box"><h2>累计收益 vs 基准（%）</h2><canvas class="retChart"></canvas></div>
     </div>
     <div class="chart-grid">
-      <div class="chart-box"><h3>持仓数 / 换手(%)</h3><canvas class="posChart"></canvas></div>
-      <div class="chart-box"><h3>现金 vs 持仓市值</h3><canvas class="cashChart"></canvas></div>
+      <div class="chart-box"><h2>持仓数 / 换手(%)</h2><canvas class="posChart"></canvas></div>
+      <div class="chart-box"><h2>现金 vs 持仓市值</h2><canvas class="cashChart"></canvas></div>
     </div>
-    <h3>操作个股 · 每日收盘（近一月）</h3>
+    <h2>操作个股 · 每日收盘（近一月）</h2>
     <p class="panel-desc">收盘后由本地数据记录，非实时。含当前持仓与近一月买卖过的标的。</p>
-    <div class="chart-box"><h3>各股累计涨幅（%，窗口起点归零）</h3><canvas class="posDailyChart"></canvas></div>
+    <div class="chart-box"><h2>各股累计涨幅（%，窗口起点归零）</h2><canvas class="posDailyChart"></canvas></div>
     <div class="pos-daily table-wrap"></div>
-    <h3>当前持仓</h3>
+    <h2>当前持仓</h2>
     <div class="holdings table-wrap"></div>
-    <h3>最近成交</h3>
+    <h2>最近成交</h2>
     <div class="fills table-wrap"></div>
-    <h3>报告</h3>
+    <h2>报告</h2>
     <div class="reports"></div>
     <div class="report-view"></div>
   </template>
@@ -311,8 +312,8 @@
         <button id="sm-close">✕</button>
       </div>
       <div id="sm-meta" class="sm-meta"></div>
-      <div class="chart-box"><h3>K线（红涨绿跌）</h3><canvas id="smK"></canvas></div>
-      <div class="chart-box"><h3>成交量</h3><canvas id="smVol"></canvas></div>
+      <div class="chart-box"><h2>K线（红涨绿跌）</h2><canvas id="smK"></canvas></div>
+      <div class="chart-box"><h2>成交量</h2><canvas id="smVol"></canvas></div>
       <div class="sm-controls">
         <span>周期：</span>
         <button class="klt-btn active" data-klt="101">日</button>
