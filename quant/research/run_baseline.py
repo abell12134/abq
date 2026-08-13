@@ -37,6 +37,12 @@ def main() -> int:
     parser.add_argument("--config", default=str(HERE / "workflow_baseline.yaml"))
     parser.add_argument("--min-ir", type=float, default=0.8,
                         help="阶段1验收门槛：样本外 IR 低于此值不晋升为线上模型")
+    parser.add_argument("--experiment", default="baseline_alpha158_lgbm",
+                        help="MLflow 实验名；研究宇宙请用独立名，避免污染生产")
+    parser.add_argument("--no-promote", action="store_true",
+                        help="即使过 IR 门禁也不写 latest_pred.csv（中间宇宙/对照实验）")
+    parser.add_argument("--report-tag", default=None,
+                        help="报告文件名后缀，默认取 config 的 market")
     args = parser.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
 
@@ -59,11 +65,16 @@ def main() -> int:
                   "kwargs": {"uri": exp_uri, "default_exp_name": "Experiment"},
               })
 
+    prod_experiment = "baseline_alpha158_lgbm"
+    is_prod_exp = args.experiment == prod_experiment
+    print(f"[cfg] market={cfg.get('market')} experiment={args.experiment} "
+          f"promote={not args.no_promote and is_prod_exp}")
+
     print("[1/4] 构建数据集（Alpha158 因子计算，耗时较长）")
     dataset = init_instance_by_config(cfg["task"]["dataset"])
     model = init_instance_by_config(cfg["task"]["model"])
 
-    with R.start(experiment_name="baseline_alpha158_lgbm"):
+    with R.start(experiment_name=args.experiment):
         print("[2/4] 训练 LightGBM")
         model.fit(dataset)
         R.save_objects(**{"params.pkl": model})
@@ -85,7 +96,8 @@ def main() -> int:
     report = render_report(metrics, rec_id, cfg)
     rep_dir = QUANT / "data" / "reports"
     rep_dir.mkdir(parents=True, exist_ok=True)
-    rep_path = rep_dir / f"baseline_{dt.date.today():%Y%m%d}.md"
+    tag = args.report_tag or str(cfg.get("market") or "baseline")
+    rep_path = rep_dir / f"baseline_{tag}_{dt.date.today():%Y%m%d}.md"
     rep_path.write_text(report)
     print(report)
     print(f"[OK] 报告已写入 {rep_path}")
@@ -100,11 +112,18 @@ def main() -> int:
     sig_dir.mkdir(parents=True, exist_ok=True)
     if ir is not None and ir < args.min_ir:
         print(f"[WARN] 样本外 IR={ir:.3f} 未达验收门槛 {args.min_ir}，不晋升为线上模型，需迭代")
-        moved = _quarantine_recorder(rec_id, ir)
-        if moved:
-            print(f"[SKIP] 已将不达标 recorder 隔离到 {moved}；latest_pred.csv 保持上一版不变")
+        if is_prod_exp:
+            moved = _quarantine_recorder(rec_id, ir)
+            if moved:
+                print(f"[SKIP] 已将不达标 recorder 隔离到 {moved}；latest_pred.csv 保持上一版不变")
+            else:
+                print("[WARN] 未能定位 recorder 目录做隔离，请人工核查 research/mlruns")
         else:
-            print("[WARN] 未能定位 recorder 目录做隔离，请人工核查 research/mlruns")
+            print(f"[SKIP] 研究实验 {args.experiment} 保留 recorder={rec_id} 供对照，不写 latest_pred")
+        return 0
+    if args.no_promote or not is_prod_exp:
+        print(f"[OK] IR={ir} 达标，但 --no-promote / 非生产实验：不写 latest_pred.csv "
+              f"（recorder={rec_id}）")
         return 0
     pred.to_csv(sig_dir / "latest_pred.csv")
     print(f"[OK] IR={ir} 达标，已晋升：写入 {sig_dir / 'latest_pred.csv'}")

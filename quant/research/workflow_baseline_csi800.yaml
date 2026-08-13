@@ -1,0 +1,87 @@
+# 中间宇宙研究：中证800（≈沪深300∪中证500），Alpha158 + LGBM Plan C
+# - 非生产。生产仍用 workflow_baseline.yaml（csi500）
+# - 目的：在「全 A 未过 IR」与「纯 CSI500」之间找可扩展宇宙；先重训+样本外验收
+# - 基准 SH000906（中证800），与宇宙匹配
+# - 超参与生产 Plan C 对齐，便于对照；过门禁也不自动晋升（见 run_baseline --no-promote）
+# 时间切分：训练 2010-2021 / 验证 2022-2023 / 测试 2024 至今
+
+qlib_init:
+  provider_uri: "datasets/qlib_data/cn_data"
+  region: cn
+
+market: &market csi800
+benchmark: &benchmark SH000906
+
+data_handler_config: &data_handler_config
+  start_time: 2010-01-01
+  end_time: 2026-07-31
+  fit_start_time: 2010-01-01
+  fit_end_time: 2021-12-31
+  instruments: *market
+
+port_analysis_config: &port_analysis_config
+  strategy:
+    class: TopkDropoutStrategy
+    module_path: qlib.contrib.strategy.signal_strategy
+    kwargs:
+      signal: <PRED>
+      topk: 50
+      n_drop: 3
+      hold_thresh: 10
+  backtest:
+    start_time: 2024-01-01
+    end_time: 2026-07-31
+    account: 1000000
+    benchmark: *benchmark
+    exchange_kwargs:
+      limit_threshold: 0.095
+      deal_price: open
+      open_cost: 0.0015
+      close_cost: 0.002
+      min_cost: 5
+
+task:
+  model:
+    class: LGBModel
+    module_path: qlib.contrib.model.gbdt
+    kwargs:
+      loss: mse
+      colsample_bytree: 0.8879
+      learning_rate: 0.02
+      subsample: 0.8789
+      lambda_l1: 500.0
+      lambda_l2: 1000.0
+      max_depth: 8
+      num_leaves: 127
+      num_threads: 1
+      early_stopping_rounds: 100
+      num_boost_round: 2000
+  dataset:
+    class: DatasetH
+    module_path: qlib.data.dataset
+    kwargs:
+      handler:
+        class: Alpha158PlusLab
+        module_path: alpha158_plus_lab
+        kwargs:
+          <<: *data_handler_config
+          label: [["Ref($open, -6) / Ref($open, -1) - 1"], ["LABEL0"]]
+      segments:
+        train: [2010-01-01, 2021-12-31]
+        valid: [2022-01-01, 2023-12-31]
+        test: [2024-01-01, 2026-07-31]
+  record:
+    - class: SignalRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        model: <MODEL>
+        dataset: <DATASET>
+    - class: SigAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        ana_long_short: false
+        ann_scaler: 252
+    - class: PortAnaRecord
+      module_path: qlib.workflow.record_temp
+      kwargs:
+        config: *port_analysis_config
