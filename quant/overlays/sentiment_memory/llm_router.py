@@ -79,14 +79,14 @@ def peak_endpoint() -> LLMEndpoint | None:
     base = _get("LLM_PEAK_BASE_URL", "http://127.0.0.1:8001/ollama/v1")
     model = _get(
         "LLM_PEAK_MODEL",
-        "frob/deepseek-v4-flash-0731:284b-a13b-ud-q2_k_xl",
+        "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
     )
     if not key or not base:
         return None
     backend = _detect_backend(base, _get("LLM_PEAK_BACKEND"))
     return LLMEndpoint(
         label="peak", base_url=base.rstrip("/"), api_key=key,
-        model=model or "frob/deepseek-v4-flash-0731:284b-a13b-ud-q2_k_xl",
+        model=model or "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
         is_peak=True, backend=backend,
     )
 

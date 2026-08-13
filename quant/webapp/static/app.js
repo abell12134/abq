@@ -4,8 +4,13 @@ const ACCOUNTS = [
   "shadow_ctrl_sim",
   "shadow_ta_sim",
 ];
-// 双线对比页仍只比研究 vs 实盘（影子 A/B 用 review_ta_overlay）
-const COMPARE_ACCOUNTS = ["research_sim_100k", "live_manual_10k"];
+// 四线对比页：研究 / 实盘 / 对照影子 / TA 影子
+const COMPARE_ACCOUNTS = [
+  "research_sim_100k",
+  "live_manual_10k",
+  "shadow_ctrl_sim",
+  "shadow_ta_sim",
+];
 const ACCOUNT_SHORT = {
   research_sim_100k: "研究模拟线",
   live_manual_10k: "实盘线",
@@ -236,9 +241,11 @@ async function loadAccount(account) {
   if (!daily.dates.length) { cc.innerHTML = '<div class="empty">暂无净值数据，等待回填/收盘流水线。</div>'; }
   else {
     const s = daily.series, n = daily.dates.length - 1;
+    // 净值序列末日未必是日历「今天」；收益标签用实际交易日，避免「当日」误导
+    const retDay = String(daily.dates[n]).slice(5); // YYYY-MM-DD → MM-DD
     cc.appendChild(card("最新净值", fmt(s.nav[n]) + " 元", daily.dates[n]));
     cc.appendChild(card("累计收益", pct(s.cum_ret[n]), `超额 ${pct(s.cum_excess[n])}`, cls(s.cum_ret[n])));
-    cc.appendChild(card("当日收益", pct(s.daily_ret[n]), "", cls(s.daily_ret[n])));
+    cc.appendChild(card(`${retDay} 收益`, pct(s.daily_ret[n]), "", cls(s.daily_ret[n])));
     cc.appendChild(card("持仓 / 现金", `${s.n_pos[n]} 只`, `现金 ${fmt(s.cash[n])} (${fmt(s.cash[n] / s.nav[n] * 100, 1)}%)`));
     cc.appendChild(card("交易天数", daily.dates.length, `平均换手 ${fmt(avg(s.turnover), 1)}%`));
   }
@@ -413,26 +420,83 @@ document.querySelectorAll(".klt-btn").forEach(b => b.onclick = () => {
   b.classList.add("active"); smKlt = +b.dataset.klt; loadStock();
 });
 
-// ----------------- 对比 -----------------
+// ----------------- 对比（四线） -----------------
 async function loadCompare() {
   const c = await getJSON("/api/compare");
-  const sum = c.summary;
+  const accounts = c.accounts?.length ? c.accounts : COMPARE_ACCOUNTS;
+  const sum = c.summary || {};
   const box = document.getElementById("cmp-summary");
   box.className = "cards"; box.innerHTML = "";
-  for (const a of COMPARE_ACCOUNTS) {
+  for (const a of accounts) {
     const s = sum[a];
-    const label = ACCOUNT_SHORT[a] || a;
+    const label = (c.labels && c.labels[a]) || ACCOUNT_SHORT[a] || a;
     if (!s || !s.days) { box.appendChild(card(label, "未初始化", "")); continue; }
     box.appendChild(card(label, pct((s.cum_ret || 0) * 100),
-      `净值 ${fmt(s.nav)} · 费用 ${fmt(s.fee)} (${pct((s.fee_ratio || 0) * 100)}) · 现金 ${pct((s.cash_ratio || 0) * 100)}`,
+      `净值 ${fmt(s.nav)} · ${s.days}天 · 超额 ${pct((s.cum_excess || 0) * 100)} · 现金 ${pct((s.cash_ratio || 0) * 100)}`,
       s.cum_ret >= 0 ? "pos" : "neg"));
   }
-  const L = c.common_days.map(d => d.date);
+
+  // 累计收益 / 超额：按日期并集对齐（各线开线日不同）
+  const seriesMap = c.series || {};
+  const labels = [...new Set(accounts.flatMap(a => seriesMap[a]?.dates || []))].sort();
+  const alignBy = (dates, values) => {
+    const m = new Map((dates || []).map((d, i) => [d, values[i]]));
+    return labels.map(d => (m.has(d) ? m.get(d) : null));
+  };
+  const cumDs = [];
+  const excessDs = [];
+  for (const a of accounts) {
+    const ser = seriesMap[a];
+    if (!ser?.dates?.length) continue;
+    const color = ACCOUNT_COLORS[a] || COLORS.research;
+    const name = ACCOUNT_SHORT[a] || a;
+    cumDs.push(lineDS(name, alignBy(ser.dates, ser.series.cum_ret), color));
+    excessDs.push(lineDS(name, alignBy(ser.dates, ser.series.cum_excess), color));
+  }
+  // 基准取研究线（与总览一致）
+  const research = seriesMap.research_sim_100k;
+  if (research?.dates?.length) {
+    cumDs.push(lineDS("基准", alignBy(research.dates, research.series.cum_bench), COLORS.bench));
+  }
   mkChart(document.getElementById("cmpChart"), {
+    type: "line",
+    data: { labels, datasets: cumDs },
+    options: { ...baseOpts, spanGaps: true },
+  });
+  mkChart(document.getElementById("cmpExcessChart"), {
+    type: "line",
+    data: { labels, datasets: excessDs },
+    options: { ...baseOpts, spanGaps: true },
+  });
+
+  const gapDays = c.common_days || [];
+  mkChart(document.getElementById("cmpGapChart"), {
     type: "bar",
-    data: { labels: L, datasets: [{ label: "日收益差(实盘-研究)%", data: c.common_days.map(d => d.gap), backgroundColor: c.common_days.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99") }] },
+    data: {
+      labels: gapDays.map(d => d.date),
+      datasets: [{
+        label: "日收益差(实盘−研究)%",
+        data: gapDays.map(d => d.gap),
+        backgroundColor: gapDays.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99"),
+      }],
+    },
     options: baseOpts,
   });
+
+  const taGap = c.ta_gap_days || [];
+  mkChart(document.getElementById("cmpTaGapChart"), {
+    type: "bar",
+    data: {
+      labels: taGap.map(d => d.date),
+      datasets: [{
+        label: "超额差(TA−对照)%",
+        data: taGap.map(d => d.gap),
+        backgroundColor: taGap.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99"),
+      }],
+    },
+    options: baseOpts,
+  });
+
   renderTable(document.getElementById("cmp-fills"), c.fill_diff,
     [["date", "日期"], ["instrument", "标的"], ["side", "方向"], ["research_price", "研究价"], ["live_price", "实盘价"], ["adverse_slip_pct", "不利滑点%"]],
     "暂无可匹配成交", "instrument");

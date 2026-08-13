@@ -17,6 +17,13 @@ abu/
 backtrader/
 # TauricResearch/TradingAgents 克隆，仅作 TA 否决层思想参考
 TradingAgents/
+TradingAgents-CN/
+# shadcn-admin 仅作 Agent UI 参考模板，不随仓库发布
+shadcn-admin/
+
+# --- 本地 AI / 设计工具产物 ---
+.claude/
+.impeccable/
 
 # --- 密钥与本地配置 ---
 .env

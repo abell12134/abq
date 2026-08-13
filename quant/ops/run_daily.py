@@ -6,7 +6,7 @@
             产出推送给人，次日开盘人工在同花顺下单
             （未显式 --day 时，update_daily 成功后自动刷新为最新交易日）
   （人工）   按清单下单 → 收盘后 record_fills.py --apply 录入实际成交
-  postclose 当晚：健康检查(成交已回填) → 对账 → 计算净值 → 出日报
+  postclose 当晚：健康检查(成交已回填) → 对账 → 计算净值 → Agent Track结算 → 出日报
 
 用法：
     python run_daily.py --stage evening --account research_sim_100k --ump
@@ -94,6 +94,12 @@ def evening(args, day: str) -> int:
     if not step("生成信号", [PY, str(QUANT / "research" / "predict_daily.py"),
                             "--date", day], day):
         return 1
+
+    # Agent 账本：信号 → 可结算 L1 预测（只写账本，不影响下单）
+    emit = [PY, str(QUANT / "agent" / "jobs" / "run_emit.py"), "--day", day]
+    step("Agent 预测入账", emit, day, fatal=False)
+    shadow = [PY, str(QUANT / "agent" / "jobs" / "run_shadow.py"), "--day", day]
+    step("Agent challenger影子", shadow, day, fatal=False)
 
     # TA 定性否决：仅账户开启 use_ta_veto 或 CLI --ta-veto 时运行；失败由 run_veto fail-open
     use_ta = args.ta_veto or bool(cfg.get("execution", {}).get("use_ta_veto"))
@@ -227,6 +233,15 @@ def postclose(args, day: str) -> int:
     if not step("计算净值", nav, day):
         return 1
     step("个股收盘快照", snap, day, fatal=False)  # 展示用，失败不阻断日报
+
+    # Agent Track：到期预测结算（全账户共享账本；同日只跑一次）
+    track_mark = QUANT / "data" / "agent" / f"track_{day}.done"
+    if not track_mark.exists():
+        track = [PY, str(QUANT / "agent" / "jobs" / "run_track.py"), "--day", day]
+        if step("Agent Track结算", track, day, fatal=False):
+            track_mark.parent.mkdir(parents=True, exist_ok=True)
+            track_mark.touch()
+
     if not step("出日报", rpt, day):
         return 1
     C.alert("INFO", "postclose 流水线完成", day)

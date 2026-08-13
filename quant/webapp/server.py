@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -24,7 +25,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -534,6 +535,76 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="A股量化双线看板", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
+# ---- Quant Agent UI (React) under /agent/ ; API proxied to :8010 ----
+AGENT_DIST = QUANT / "agent-ui" / "dist"
+AGENT_API_UPSTREAM = os.environ.get("AGENT_API_UPSTREAM", "http://127.0.0.1:8010")
+
+
+@app.api_route("/agent/api/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def agent_api_proxy(path: str, request: Request):
+    """Browser stays on :8000; proxy to agent_api so 5173/8010 need not be public."""
+    import httpx
+
+    url = f"{AGENT_API_UPSTREAM.rstrip('/')}/api/{path}"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+    headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length")
+    }
+    # preserve client IP for agent_api whitelist
+    headers["x-forwarded-for"] = _client_ip(request) or headers.get("x-forwarded-for", "")
+    body = await request.body()
+    # Supervisor / research can call remote Peak LLM — allow longer than default
+    slow = path.startswith("supervisor/") or path.startswith("research/") or path.startswith("admin/")
+    timeout = httpx.Timeout(600.0 if slow else 90.0, connect=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            upstream = await client.request(
+                request.method, url, content=body, headers=headers
+            )
+    except httpx.ConnectError as exc:
+        raise HTTPException(
+            502,
+            f"Agent API 未启动（{AGENT_API_UPSTREAM}）。请先 bash agent_api/serve.sh",
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise HTTPException(
+            504,
+            f"Agent API 超时（{path}）。Peak LLM 或研究队列可能过慢，请重试或稍后。",
+        ) from exc
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+@app.get("/agent")
+@app.get("/agent/")
+@app.get("/agent/{full_path:path}")
+def agent_spa(request: Request, full_path: str = ""):
+    """Serve built React app; SPA fallback to index.html."""
+    if not AGENT_DIST.exists():
+        raise HTTPException(
+            503,
+            "Agent UI 未构建：cd quant/agent-ui && npm run build",
+        )
+    _log_visit(request, f"/agent/{full_path}")
+    # never let this catch /agent/api (registered above)
+    candidate = (AGENT_DIST / full_path).resolve()
+    try:
+        candidate.relative_to(AGENT_DIST.resolve())
+    except ValueError as exc:
+        raise HTTPException(400, "bad path") from exc
+    if full_path and candidate.is_file():
+        return FileResponse(candidate)
+    index = AGENT_DIST / "index.html"
+    if not index.exists():
+        raise HTTPException(503, "Agent UI index.html missing")
+    return FileResponse(index)
+
 
 def _asset_ver() -> int:
     """静态资源版本号（取 app.js/style.css 最新修改时间），用于前端缓存击穿。"""
@@ -635,6 +706,15 @@ def api_report(account: str, name: str):
 
 @app.get("/api/compare")
 def api_compare():
+    """四线对比：研究 / 实盘 / 对照影子 / TA 影子。
+
+    返回各账户摘要 + 日序列（前端按日期并集画累计收益/超额）；
+    成交偏差仍只比研究 vs 实盘（资金量级不同，影子线不参与滑点表）。
+    """
+    summary = {a: RA.summary(a) for a in ACCOUNTS}
+    series = {a: daily_series(a) for a in ACCOUNTS}
+
+    # 研究 vs 实盘：共同交易日收益差（保留，便于看执行偏差日）
     dr, dl = RA.load_daily(RESEARCH), RA.load_daily(LIVE)
     common = []
     if not dr.empty and not dl.empty:
@@ -642,10 +722,26 @@ def api_compare():
             dl[["date", "daily_ret", "excess_ret"]], on="date",
             how="inner", suffixes=("_r", "_l"))
         for r in m.itertuples():
-            common.append({"date": r.date,
+            common.append({"date": str(r.date),
                            "ret_research": round(r.daily_ret_r * 100, 3),
                            "ret_live": round(r.daily_ret_l * 100, 3),
                            "gap": round((r.daily_ret_l - r.daily_ret_r) * 100, 3)})
+
+    # TA vs 对照：共同交易日超额差（影子 A/B）
+    dta, dctrl = RA.load_daily("shadow_ta_sim"), RA.load_daily("shadow_ctrl_sim")
+    ta_gap = []
+    if not dta.empty and not dctrl.empty:
+        m2 = dta[["date", "excess_ret"]].merge(
+            dctrl[["date", "excess_ret"]], on="date",
+            how="inner", suffixes=("_ta", "_ctrl"))
+        for r in m2.itertuples():
+            ta_gap.append({
+                "date": str(r.date),
+                "excess_ta": round(r.excess_ret_ta * 100, 3),
+                "excess_ctrl": round(r.excess_ret_ctrl * 100, 3),
+                "gap": round((r.excess_ret_ta - r.excess_ret_ctrl) * 100, 3),
+            })
+
     fd = RA.fill_diff(RESEARCH, LIVE)
     diffs = []
     if not fd.empty:
@@ -654,8 +750,15 @@ def api_compare():
                           "research_price": round(r.research_price, 2),
                           "live_price": round(r.live_price, 2),
                           "adverse_slip_pct": round(r.adverse_slip_pct, 3)})
-    return {"summary": {RESEARCH: RA.summary(RESEARCH), LIVE: RA.summary(LIVE)},
-            "common_days": common, "fill_diff": diffs}
+    return {
+        "accounts": list(ACCOUNTS),
+        "labels": ACCOUNT_LABELS,
+        "summary": summary,
+        "series": series,
+        "common_days": common,
+        "ta_gap_days": ta_gap,
+        "fill_diff": diffs,
+    }
 
 
 @app.get("/api/alerts")

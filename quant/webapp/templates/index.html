@@ -24,7 +24,7 @@
     <button class="tab" data-tab="live_manual_10k">实盘线</button>
     <button class="tab" data-tab="shadow_ctrl_sim">对照影子线</button>
     <button class="tab" data-tab="shadow_ta_sim">TA影子线</button>
-    <button class="tab" data-tab="compare">双线对比</button>
+    <button class="tab" data-tab="compare">四线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
     <button class="tab" data-tab="sentiment">舆情跟踪</button>
     <button class="tab" data-tab="swing">短线猎手</button>
@@ -46,10 +46,13 @@
     <section id="shadow_ctrl_sim" class="panel account-panel"></section>
     <section id="shadow_ta_sim" class="panel account-panel"></section>
 
-    <!-- 双线对比 -->
+    <!-- 四线对比：研究 / 实盘 / 对照 / TA -->
     <section id="compare" class="panel">
       <div id="cmp-summary"></div>
-      <div class="chart-box"><h2>共同交易日 日收益差（实盘-研究, %）</h2><canvas id="cmpChart"></canvas></div>
+      <div class="chart-box"><h2>累计收益对比（%）</h2><canvas id="cmpChart"></canvas></div>
+      <div class="chart-box"><h2>累计超额对比（%）</h2><canvas id="cmpExcessChart"></canvas></div>
+      <div class="chart-box"><h2>共同交易日 日收益差（实盘−研究, %）</h2><canvas id="cmpGapChart"></canvas></div>
+      <div class="chart-box"><h2>共同交易日 超额差（TA−对照, %）</h2><canvas id="cmpTaGapChart"></canvas></div>
       <h2>成交偏差（实盘相对研究线，正=更差）</h2>
       <div id="cmp-fills" class="table-wrap"></div>
     </section>
