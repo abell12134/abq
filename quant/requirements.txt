@@ -14,3 +14,4 @@ fastapi>=0.110           # 阶段5 看板服务
 uvicorn>=0.29            # ASGI 服务器
 jinja2>=3.1              # 看板模板
 apscheduler>=3.10        # 后台常驻定时（每日 evening/postclose/复盘）
+minio>=7.2               # MinIO/S3 数据同步（服务器 push / 本地 pull）

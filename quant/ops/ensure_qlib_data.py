@@ -63,6 +63,19 @@ def already_ready() -> bool:
 
 def extract(force: bool = False) -> Path:
     out = EXTRACT_ROOT / "cn_data"
+
+    # 每次启动检查 MinIO 是否有更新（即使本地已有数据）
+    try:
+        from minio_sync import minio_settings, pull_qlib
+
+        if minio_settings():
+            r = pull_qlib(force=force)
+            if r.get("action") == "pulled":
+                print(f"[OK] 已从 MinIO 同步: {out}")
+                return out
+    except Exception as exc:
+        print(f"[minio] 拉取跳过，回退分卷解压: {exc}")
+
     if already_ready() and not force:
         print(f"[OK] Qlib 数据已就绪: {out}")
         return out

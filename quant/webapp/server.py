@@ -46,8 +46,16 @@ PY = sys.executable
 RUN_DAILY = QUANT / "ops" / "run_daily.py"
 REVIEW = QUANT / "ops" / "review_accounts.py"
 
-# 看板纳管的账户：研究 + 实盘 + TA 影子 A/B（同参 1.2 万，过门禁前不改 live 的 use_ta_veto）
+# 看板纳管的账户：研究 + 实盘 + TA 影子 A/B + 4 万纸上线
 ACCOUNTS = [
+    "research_sim_100k",
+    "live_manual_10k",
+    "shadow_ctrl_sim",
+    "shadow_ta_sim",
+    "paper_40k_sim",
+]
+# 四线对比页不纳入 4 万纸上线（资金/约束不同，不当 A/B）
+COMPARE_ACCOUNTS = [
     "research_sim_100k",
     "live_manual_10k",
     "shadow_ctrl_sim",
@@ -59,6 +67,7 @@ ACCOUNT_LABELS = {
     "live_manual_10k": "实盘线",
     "shadow_ctrl_sim": "对照影子线",
     "shadow_ta_sim": "TA影子线",
+    "paper_40k_sim": "4万纸上线",
 }
 TZ = "Asia/Shanghai"
 
@@ -515,6 +524,15 @@ def scheduler_jobs() -> list[dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
+    # 启动时从 MinIO 同步数据（若远端更新）
+    try:
+        import sys
+        sys.path.insert(0, str(QUANT / "ops"))
+        from minio_sync import sync_on_startup
+        sync_on_startup()
+    except Exception as exc:
+        print(f"[minio] 启动同步跳过: {exc}")
+
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
     _scheduler = BackgroundScheduler(timezone=TZ)
@@ -711,8 +729,8 @@ def api_compare():
     返回各账户摘要 + 日序列（前端按日期并集画累计收益/超额）；
     成交偏差仍只比研究 vs 实盘（资金量级不同，影子线不参与滑点表）。
     """
-    summary = {a: RA.summary(a) for a in ACCOUNTS}
-    series = {a: daily_series(a) for a in ACCOUNTS}
+    summary = {a: RA.summary(a) for a in COMPARE_ACCOUNTS}
+    series = {a: daily_series(a) for a in COMPARE_ACCOUNTS}
 
     # 研究 vs 实盘：共同交易日收益差（保留，便于看执行偏差日）
     dr, dl = RA.load_daily(RESEARCH), RA.load_daily(LIVE)
@@ -751,13 +769,71 @@ def api_compare():
                           "live_price": round(r.live_price, 2),
                           "adverse_slip_pct": round(r.adverse_slip_pct, 3)})
     return {
-        "accounts": list(ACCOUNTS),
+        "accounts": list(COMPARE_ACCOUNTS),
         "labels": ACCOUNT_LABELS,
         "summary": summary,
         "series": series,
         "common_days": common,
         "ta_gap_days": ta_gap,
         "fill_diff": diffs,
+    }
+
+
+@app.get("/api/paper-40k")
+def api_paper_40k():
+    """4 万纸上线：账户参数 + 嵌套验收摘要，供独立页展示。"""
+    _check("paper_40k_sim")
+    cfg = C.account_config("paper_40k_sim")
+    acct = cfg.get("account", {})
+    st = cfg.get("strategy", {})
+    ex = cfg.get("execution", {})
+    nested = {}
+    report_path = QUANT / "data" / "reports" / "stage_40k_strategy_20260814.json"
+    if report_path.exists():
+        raw = json.loads(report_path.read_text())
+        for row in raw.get("grid") or []:
+            nested[row["tag"]] = {
+                "sel_ir": row["sel"]["ir"],
+                "sel_ann": row["sel"]["ann"],
+                "y2026_ir": row["y2026"]["ir"],
+                "y2026_ann": row["y2026"]["ann"],
+                "y2026_mdd": row["y2026"]["mdd"],
+                "qualified": row.get("qualified"),
+            }
+        fork = raw.get("fork")
+        qualified = raw.get("qualified_tags") or []
+        winner = (raw.get("winner_sel") or {}).get("tag")
+    else:
+        fork, qualified, winner = "", [], None
+    acc = C.load_account("paper_40k_sim") or {}
+    return {
+        "account": "paper_40k_sim",
+        "label": ACCOUNT_LABELS["paper_40k_sim"],
+        "mode": acct.get("mode"),
+        "cash": acct.get("initial_capital"),
+        "book_cash": acc.get("cash"),
+        "start_date": acc.get("start_date"),
+        "last_fill_date": acc.get("last_fill_date"),
+        "strategy": {
+            "topk": st.get("topk"),
+            "n_drop": st.get("n_drop"),
+            "hold_thresh": st.get("hold_thresh"),
+            "max_weight": st.get("max_weight"),
+            "tag": f"{st.get('topk')}/{st.get('n_drop')}/{st.get('hold_thresh')}",
+        },
+        "execution": {
+            "exclude_boards": ex.get("exclude_boards") or [],
+            "filter_unaffordable": bool(ex.get("filter_unaffordable")),
+            "lot_slack": ex.get("lot_slack"),
+            "lot_size": ex.get("lot_size", 100),
+        },
+        "paper_tag": "12/1/10",
+        "qualified_tags": qualified,
+        "sel_winner": winner,
+        "nested": nested,
+        "fork": fork,
+        "note": "纸上模拟，不满 40 个交易日不改 live_manual_10k。",
+        "plan": daily_ops_plan("paper_40k_sim"),
     }
 
 
@@ -780,18 +856,287 @@ def api_indices():
     return {"indices": Q.indices()}
 
 
+# ----------------------------- 市场热度（总览，只读建议） -----------------------------
+PULSE_JOB = LOG_DIR / "market_pulse_job.json"
+PULSE_BOOKS = ("live_manual_10k", "paper_40k_sim")
+
+
+def _latest_sector_pulse() -> tuple[Path | None, dict | None]:
+    reports = QUANT / "data" / "reports"
+    files = sorted(reports.glob("sector_pulse_????????.json"))
+    if not files:
+        return None, None
+    path = files[-1]
+    try:
+        return path, json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return path, None
+
+
+def _read_pulse_job() -> dict:
+    if not PULSE_JOB.exists():
+        return {"status": "idle"}
+    try:
+        return json.loads(PULSE_JOB.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "idle"}
+
+
+def _write_pulse_job(payload: dict) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    PULSE_JOB.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _pulse_regime(indices: list[dict]) -> dict:
+    by = {str(x.get("name") or ""): x for x in indices or []}
+    csi300 = by.get("沪深300") or {}
+    csi500 = by.get("中证500") or {}
+    csi1000 = by.get("中证1000") or {}
+    cyb = by.get("创业板指") or {}
+    sh = by.get("上证指数") or {}
+
+    def _f(row: dict, key: str) -> float | None:
+        v = row.get(key)
+        try:
+            return None if v is None else float(v)
+        except (TypeError, ValueError):
+            return None
+
+    d20_500 = None
+    d20_1000 = None
+    if _f(csi500, "chg_20d") is not None and _f(csi300, "chg_20d") is not None:
+        d20_500 = round(float(csi500["chg_20d"]) - float(csi300["chg_20d"]), 2)
+    if _f(csi1000, "chg_20d") is not None and _f(csi300, "chg_20d") is not None:
+        d20_1000 = round(float(csi1000["chg_20d"]) - float(csi300["chg_20d"]), 2)
+    tags: list[str] = []
+    if d20_500 is not None and d20_1000 is not None:
+        if d20_500 > 1 and d20_1000 > 1:
+            tags.append("近20日中小盘占优")
+        elif d20_500 < -1 and d20_1000 < -1:
+            tags.append("近20日大盘相对强")
+        else:
+            tags.append("近20日风格分化不明显")
+    cyb_1d = _f(cyb, "chg_1d")
+    sh_1d = _f(sh, "chg_1d")
+    if cyb_1d is not None and sh_1d is not None and cyb_1d > 0.3 and sh_1d < 0:
+        tags.append("创业板日内逆势")
+    if not tags:
+        tags.append("指数结构见下表")
+    return {
+        "tags": tags,
+        "csi500_vs_300_20d": d20_500,
+        "csi1000_vs_300_20d": d20_1000,
+        "csi300_20d": _f(csi300, "chg_20d"),
+        "csi500_20d": _f(csi500, "chg_20d"),
+        "csi1000_20d": _f(csi1000, "chg_20d"),
+        "cyb_1d": cyb_1d,
+        "sh_1d": sh_1d,
+    }
+
+
+def _pulse_name_map(pulse: dict) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for key in ("rising", "watch", "holdings"):
+        for row in pulse.get(key) or []:
+            inst = str(row.get("instrument") or "")
+            if inst:
+                out[inst] = row
+    return out
+
+
+def _hot_board_hit(industry: str, boards: list[str]) -> str:
+    if not industry:
+        return ""
+    for b in boards:
+        if not b:
+            continue
+        if b in industry or industry in b:
+            return b
+    return ""
+
+
+def _pulse_book_overlap(pulse: dict) -> list[dict]:
+    boards = [str(x.get("name") or "") for x in (pulse.get("industries_top") or [])[:8]]
+    names = _pulse_name_map(pulse)
+    rows: list[dict] = []
+    for account in PULSE_BOOKS:
+        try:
+            held = {str(h["instrument"]) for h in holdings_view(account)}
+        except Exception:
+            held = set()
+        try:
+            plan = daily_ops_plan(account)
+        except Exception:
+            plan = {}
+        targets = {str(t.get("instrument") or "") for t in plan.get("target_positions") or []}
+        buys = {
+            str(o.get("instrument") or "")
+            for o in plan.get("orders") or []
+            if str(o.get("side") or "").upper() == "BUY"
+        }
+        insts = sorted((held | targets | buys) - {""})
+        for inst in insts:
+            info = names.get(inst) or {}
+            industry = str(info.get("industry") or "")
+            role = []
+            if inst in held:
+                role.append("持仓")
+            if inst in targets or inst in buys:
+                role.append("目标")
+            rows.append({
+                "account": account,
+                "label": ACCOUNT_LABELS.get(account, account),
+                "instrument": inst,
+                "name": info.get("name") or "",
+                "industry": industry,
+                "hot_board": _hot_board_hit(industry, boards),
+                "policy_hit": bool(info.get("policy_hit")),
+                "sector_hit": bool(info.get("sector_hit")),
+                "pulse": info.get("pulse"),
+                "role": " / ".join(role) or "—",
+            })
+    rows.sort(key=lambda x: (
+        0 if x["hot_board"] or x["policy_hit"] else 1,
+        x["label"],
+        x["instrument"],
+    ))
+    return rows
+
+
+@app.get("/api/market/pulse")
+def api_market_pulse():
+    """总览用市场热度：读最新 sector_pulse JSON，不改订单。"""
+    path, pulse = _latest_sector_pulse()
+    job = _read_pulse_job()
+    if not pulse:
+        return {
+            "ok": True,
+            "available": False,
+            "job": job,
+            "disclaimer": "尚无热度报告。点「刷新热度」生成；不改订单。",
+        }
+    industries = list(pulse.get("industries_top") or [])[:8]
+    themes = []
+    for t in pulse.get("policy_themes") or []:
+        themes.append({
+            "theme": t.get("theme"),
+            "n": t.get("n"),
+            "headlines": list(t.get("headlines") or [])[:3],
+        })
+    rising = list(pulse.get("rising") or [])
+    watch = [x for x in (pulse.get("watch") or [])
+             if x.get("instrument") not in {r.get("instrument") for r in rising}][:8]
+    return {
+        "ok": True,
+        "available": True,
+        "path": str(path) if path else None,
+        "generated": pulse.get("generated"),
+        "signal_day": pulse.get("signal_day"),
+        "disclaimer": pulse.get("disclaimer") or "研究建议，不改订单。",
+        "regime": _pulse_regime(pulse.get("indices") or []),
+        "indices": pulse.get("indices") or [],
+        "industries_top": industries,
+        "policy_themes": themes,
+        "rising": rising,
+        "watch": watch,
+        "books": _pulse_book_overlap(pulse),
+        "job": job,
+    }
+
+
+@app.post("/api/market/run")
+def api_market_run(request: Request):
+    """后台重跑 sector_pulse.py，只写 reports/，不改 orders/。"""
+    _require_full_access(request)
+    job = _read_pulse_job()
+    if job.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": job}
+    started = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+    payload = {
+        "status": "running",
+        "started": started,
+        "message": "正在拉取指数/行业/政策…",
+        "pct": 8,
+    }
+    _write_pulse_job(payload)
+    log = LOG_DIR / f"market_pulse_{datetime.now():%Y-%m-%d}.log"
+    cmd = [PY, str(QUANT / "research" / "sector_pulse.py")]
+
+    def _bg():
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n=== {started} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, cwd=str(QUANT),
+                    env={**dict(os.environ), "PYTHONUNBUFFERED": "1"},
+                )
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    fh.write(line)
+                    fh.flush()
+                rc = proc.wait()
+                done = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+                _write_pulse_job({
+                    "status": "ok" if rc == 0 else "error",
+                    "started": started,
+                    "finished": done,
+                    "message": "已更新" if rc == 0 else f"退出码 {rc}",
+                    "pct": 100,
+                    "rc": rc,
+                })
+            except Exception as exc:  # noqa: BLE001
+                _write_pulse_job({
+                    "status": "error",
+                    "started": started,
+                    "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                    "message": str(exc),
+                    "pct": 100,
+                })
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "busy": False, "job": payload, "log": str(log)}
+
+
 # ----------------------------- 舆情长期记忆 -----------------------------
 @app.get("/api/sentiment/catalog")
-def api_sentiment_catalog():
-    """跟踪标的目录（最新报告摘要）。"""
+def api_sentiment_catalog(account: str | None = None):
+    """跟踪标的目录（最新报告摘要）。可按账户筛持仓/订单宇宙。"""
     sys.path.insert(0, str(QUANT))
     from overlays.sentiment_memory import store as SM  # noqa: WPS433
+    from overlays.sentiment_memory.run_memory import resolve_universe
     cat = SM.load_catalog()
-    instruments = list((cat.get("instruments") or {}).values())
-    instruments.sort(key=lambda x: str(x.get("latest_date") or ""), reverse=True)
+    by_inst = dict(cat.get("instruments") or {})
+    instruments = list(by_inst.values())
+    book: list[str] = []
+    if account:
+        _check(account)
+        book = resolve_universe(account)
+        book_set = set(book)
+        instruments = [x for x in instruments if x.get("instrument") in book_set]
+        have = {x.get("instrument") for x in instruments}
+        for inst in book:
+            if inst not in have:
+                instruments.append({
+                    "instrument": inst,
+                    "name": "",
+                    "headline": "尚未分析",
+                    "sentiment": None,
+                    "score": None,
+                    "accounts": [account],
+                })
+    instruments.sort(key=lambda x: (
+        0 if x.get("latest_date") else 1,
+        str(x.get("latest_date") or ""),
+    ), reverse=True)
     return {
         "updated_at": cat.get("updated_at"),
         "peak_hour": _sentiment_peak_now(),
+        "account": account,
+        "book": book,
         "instruments": instruments,
     }
 

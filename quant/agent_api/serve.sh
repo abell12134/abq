@@ -17,6 +17,10 @@ is_running() { [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null;
 case "${1:-}" in
   start)
     if is_running; then echo "已在运行 (pid=$(cat "$PID_FILE"))"; exit 0; fi
+    # 启动前从 MinIO 同步数据
+    if [[ -x "$VENV/python" ]]; then
+      "$VENV/python" "$QUANT/ops/minio_sync.py" pull --qlib-only 2>/dev/null || true
+    fi
     # free stale listener if pid file missing
     if ss -ltn 2>/dev/null | grep -q ":${PORT} "; then
       echo "端口 $PORT 已被占用，请先 stop 或释放端口"; exit 1

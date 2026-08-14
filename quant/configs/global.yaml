@@ -16,6 +16,10 @@ universe:
   market: csi500            # 生产默认中证500（全 A 实验未过 IR 门禁，见 workflow_baseline_all.yaml）
   benchmark: SH000905       # 中证500；全 A 研究用 SH000985
 
+# 短线猎手搜索宇宙：与上面生产 universe 独立，不改 LGBM / 订单 / predict_daily
+swing_hunter:
+  market: csi800            # 动量/事件在此池扫描；量化强势路仍用 CSI500 生产信号 Top30
+
 strategy:
   topk: 50                  # 持仓数量（与 research/workflow_baseline.yaml 保持一致）
   n_drop: 3                 # 每日最多换仓数量（控制换手率）
@@ -48,3 +52,14 @@ risk:
 # IP 白名单见 configs/webapp.local.yaml（gitignore，复制 webapp.local.yaml.example）
 # 留空 = 全员只读演示；127.0.0.1 / ::1 始终本机全权限
 webapp: {}
+
+# MinIO 数据同步（凭证见 configs/secret.env）
+# 服务器 update_daily 后自动 push；本地启动时自动 pull
+minio:
+  enabled: true
+  endpoint: 118.195.177.58:9000   # 服务器内网可设 MINIO_ENDPOINT=10.10.0.5:9000
+  bucket: abq-data
+  secure: false
+  qlib_object: qlib/cn_data.tar.gz
+  quant_data_prefix: quant-data/
+  sync_on_startup: true
