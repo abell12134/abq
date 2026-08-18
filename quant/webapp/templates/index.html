@@ -28,6 +28,7 @@
     <button class="tab" data-tab="daily-ops">操作清单</button>
     <button class="tab" data-tab="sentiment">舆情跟踪</button>
     <button class="tab" data-tab="swing">短线猎手</button>
+    <button class="tab" data-tab="research">研究分析</button>
     <button class="tab" data-tab="alerts">告警/调度</button>
   </nav>
 
@@ -272,6 +273,125 @@
         <div id="sw-detail-daily" class="table-wrap"></div>
       </div>
     </div>
+
+    <!-- 研究分析 -->
+    <section id="research" class="panel">
+      <div class="sent-toolbar">
+        <div>
+          <h2 class="sent-title">研究分析</h2>
+          <p class="panel-desc">4 分析师（行情/新闻/基面/舆情）→ 中英双多空辩论 → 评判裁决 · 进可结算账本</p>
+        </div>
+        <div class="sent-actions">
+          <span id="rs-peak" class="badge empty">时段 —</span>
+          <span id="rs-updated" class="sent-updated">—</span>
+          <button id="rs-refresh" type="button">刷新</button>
+          <button id="rs-run" type="button" class="btn-secondary">全量研究</button>
+        </div>
+      </div>
+      <div id="rs-progress" class="sent-progress hidden">
+        <div class="sent-progress-head">
+          <span id="rs-progress-label">研究进行中…</span>
+          <span id="rs-progress-pct">0%</span>
+        </div>
+        <div class="sent-progress-track">
+          <div id="rs-progress-bar" class="sent-progress-bar"></div>
+        </div>
+        <div id="rs-progress-msg" class="sent-progress-msg">—</div>
+      </div>
+      <div class="sent-layout">
+        <aside class="sent-side">
+          <div class="sent-side-head">研究宇宙</div>
+          <div class="sent-lookup">
+            <input id="rs-code" type="text" placeholder="代码 600519 / SH600519"
+                   maxlength="12" autocomplete="off" />
+            <button id="rs-analyze-one" type="button">研究</button>
+          </div>
+          <div id="rs-list" class="sent-list"></div>
+        </aside>
+        <div class="sent-main">
+          <div id="rs-empty" class="empty">选择左侧标的，或点击「全量研究」生成报告。</div>
+          <div id="rs-detail" class="hidden">
+            <div class="sent-hero">
+              <div class="sent-hero-left">
+                <div class="sent-title-row">
+                  <div id="rs-name" class="sent-name">—</div>
+                  <span id="rs-code-pill" class="sent-pill">—</span>
+                  <span id="rs-date-pill" class="sent-pill muted">—</span>
+                </div>
+                <div id="rs-sub" class="sent-sub">研究分析 · 双语裁决</div>
+              </div>
+              <div class="sent-hero-right">
+                <button id="rs-rerun-one" type="button" class="btn-secondary">重新研究本股</button>
+              </div>
+            </div>
+
+            <div id="rs-tags" class="sent-tags"></div>
+
+            <div id="rs-stats" class="sent-stats">
+              <div class="sent-stat">
+                <div class="label">合并方向</div>
+                <div id="rs-direction" class="value">—</div>
+                <div id="rs-conf-sub" class="sub">置信 —</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">一致性</div>
+                <div id="rs-consensus" class="value">—</div>
+                <div id="rs-consensus-sub" class="sub">中英裁决对比</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">账本 pred_id</div>
+                <div id="rs-predid" class="value">—</div>
+                <div id="rs-predid-sub" class="sub">可结算 shadow</div>
+              </div>
+              <div class="sent-stat">
+                <div class="label">证据覆盖</div>
+                <div id="rs-coverage" class="value">—</div>
+                <div id="rs-coverage-sub" class="sub">行情 / 新闻 / 基面</div>
+              </div>
+            </div>
+
+            <div class="sent-grid">
+              <div class="sent-block">
+                <div class="sent-sec-head">
+                  <h3>中文裁决</h3>
+                  <span id="rs-cn-action" class="sent-cap">—</span>
+                </div>
+                <p id="rs-cn-summary" class="sent-summary">—</p>
+                <ul id="rs-cn-reasons" class="sent-ul"></ul>
+                <div id="rs-cn-meta" class="sent-cap"></div>
+              </div>
+              <div class="sent-block">
+                <div class="sent-sec-head">
+                  <h3>英文裁决 (EN)</h3>
+                  <span id="rs-en-action" class="sent-cap">—</span>
+                </div>
+                <p id="rs-en-summary" class="sent-summary">—</p>
+                <ul id="rs-en-reasons" class="sent-ul"></ul>
+                <div id="rs-en-meta" class="sent-cap"></div>
+              </div>
+            </div>
+
+            <div class="sent-grid">
+              <div class="sent-block sent-block-stack">
+                <div>
+                  <h3>分析师报告</h3>
+                  <div id="rs-analysts" class="rs-analysts"></div>
+                </div>
+              </div>
+              <div class="sent-block">
+                <div class="sent-sec-head">
+                  <h3>历史报告</h3>
+                  <span class="sent-cap">逐日裁决轨迹</span>
+                </div>
+                <div id="rs-hist" class="table-wrap embedded"></div>
+              </div>
+            </div>
+
+            <div class="sent-meta" id="rs-meta"></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- 告警/调度 -->
     <section id="alerts" class="panel">

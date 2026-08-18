@@ -1,16 +1,16 @@
 """swing_hunter 分析层：单票简报 → Analyst/Bull/Bear/Judge → Prediction。
 
-LLM 路由复用 sentiment_memory.llm_router（高峰自部署 / 闲时 DeepSeek）。
+LLM 路由复用 sentiment_memory.llm_router（默认本地 LLM_PEAK_*；可用 --force-llm offpeak）。
 任何 LLM 异常由 run_swing 捕获并降级为 watch（fail-open 到观察态，不产生假预测）。
 """
 
 from __future__ import annotations
 
 import json
-import re
 import time
 from typing import Any
 
+from overlays.llm_json import parse_json_object
 from overlays.sentiment_memory import llm_router  # noqa: WPS433
 
 from . import prompts_cn as prompts
@@ -61,13 +61,7 @@ def _chat(
 
 
 def parse_prediction(text: str, instrument: str) -> dict[str, Any] | None:
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
+    obj = parse_json_object(text)
     return obj if isinstance(obj, dict) else None
 
 
@@ -390,18 +384,6 @@ def analyze_delta(
         summary = str(obj.get("summary") or summary)[:200]
         risk_change = str(obj.get("risk_change") or "不变")[:8]
         invalidate = bool(obj.get("invalidate"))
-    else:
-        m = re.search(r"\{.*\}", text or "", re.S)
-        if m:
-            try:
-                raw = json.loads(m.group(0))
-                stance = str(raw.get("stance", "hold")).lower()
-                headline = str(raw.get("headline", headline))[:80]
-                summary = str(raw.get("summary", summary))[:200]
-                risk_change = str(raw.get("risk_change", "不变"))
-                invalidate = bool(raw.get("invalidate"))
-            except json.JSONDecodeError:
-                pass
 
     return {
         "date": day,

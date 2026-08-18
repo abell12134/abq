@@ -84,6 +84,7 @@ def run(
             day = C.latest_trading_day()
         except Exception:  # noqa: BLE001
             day = datetime.now(TZ).strftime("%Y-%m-%d")
+    force_llm = force_llm or "peak"
     store.ensure_dirs()
     cur = JOB.read_job()
     if cur.get("status") != "running":
@@ -134,7 +135,8 @@ def _run_impl(
         if not skip_delta and store.all_active_records():
             names_active = _lookup_names([r.instrument for r in store.all_active_records()])
             delta_summary = DT.run_delta_updates(
-                day, names_active, dry_run=False, force_llm="offpeak",
+                day, names_active, dry_run=False,
+                force_llm=force_llm or "peak",
             )
             print(f"[OK] delta 更新 {delta_summary.get('updated')} 只，"
                   f"跳过 {delta_summary.get('skipped')}")
@@ -154,7 +156,7 @@ def _run_impl(
         names_active = _lookup_names([r.instrument for r in store.all_active_records()])
         delta_summary = DT.run_delta_updates(
             day, names_active, dry_run=dry_run,
-            force_llm=None if dry_run else "offpeak",
+            force_llm=None if dry_run else (force_llm or "peak"),
         )
         print(f"[OK] delta 更新 {delta_summary.get('updated')} 只，"
               f"跳过 {delta_summary.get('skipped')}")
@@ -409,8 +411,8 @@ def main() -> int:
     p.add_argument("--skip-delta", action="store_true", help="跳过活跃票 delta LLM")
     p.add_argument("--force", action="store_true",
                    help="忽略同日已有预测，强制重跑新预测 LLM")
-    p.add_argument("--force-llm", default=None, choices=["peak", "offpeak"],
-                   help="强制 LLM 路由；默认按时段自动（高峰本地 / 闲时 DeepSeek）")
+    p.add_argument("--force-llm", default="peak", choices=["peak", "offpeak"],
+                   help="LLM 路由：默认 peak=本地自部署；offpeak=DeepSeek")
     p.add_argument("--max-llm", type=int, default=MAX_LLM_CALLS,
                    help="LLM 深析上限；0=全部未过滤候选（默认）")
     args = p.parse_args()

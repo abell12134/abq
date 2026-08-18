@@ -1,10 +1,9 @@
 """高峰/闲时 LLM 路由。
 
-高峰（北京时间 9:00–12:00、14:00–18:00）优先自部署端点（`LLM_PEAK_*`）：
-  - Ollama（URL 含 `ollama` 或 `LLM_PEAK_BACKEND=ollama`）→ 原生 `/api/chat`，
-    顶层 `think=False` 关闭思维链；
-  - 其它 OpenAI 兼容端点 → `/v1/chat/completions`。
-闲时或高峰失败时回落到 DeepSeek 云 API（configs/secret.env）。
+默认（`LLM_OVERLAYS_LOCAL_ONLY=1`）：舆情记忆 / 短线猎手等 overlays **始终**走自部署
+`LLM_PEAK_*`（Ollama / OpenAI 兼容），失败不回落 DeepSeek。
+
+若关闭 local-only：高峰优先本地，闲时或高峰失败回落 `LLM_*` / DeepSeek。
 """
 
 from __future__ import annotations
@@ -37,6 +36,12 @@ def _load_secret() -> dict[str, str]:
 def _get(key: str, default: str | None = None) -> str | None:
     s = _load_secret()
     return s.get(key) or os.environ.get(key) or default
+
+
+def overlays_local_only() -> bool:
+    """overlays（舆情/短线猎手）是否强制本地模型。默认开启。"""
+    v = (_get("LLM_OVERLAYS_LOCAL_ONLY", "1") or "1").strip().lower()
+    return v in ("1", "true", "yes", "on")
 
 
 def is_peak_hour(now: datetime | None = None) -> bool:
@@ -107,7 +112,7 @@ def offpeak_endpoint() -> LLMEndpoint:
 
 
 def resolve_endpoint(force: str | None = None) -> LLMEndpoint:
-    """force: 'peak' | 'offpeak' | None（按时段自动）。"""
+    """force: 'peak' | 'offpeak' | None（local-only 或按时段自动）。"""
     if force == "offpeak":
         return offpeak_endpoint()
     if force == "peak":
@@ -115,11 +120,20 @@ def resolve_endpoint(force: str | None = None) -> LLMEndpoint:
         if ep is None:
             raise RuntimeError("未配置 LLM_PEAK_API_KEY / LLM_PEAK_BASE_URL")
         return ep
-    if is_peak_hour():
+    # overlays 默认强制本地；否则高峰优先本地
+    if overlays_local_only() or is_peak_hour():
         ep = peak_endpoint()
         if ep is not None:
             return ep
+        if overlays_local_only():
+            raise RuntimeError(
+                "LLM_OVERLAYS_LOCAL_ONLY=1 但未配置 LLM_PEAK_API_KEY / LLM_PEAK_BASE_URL")
     return offpeak_endpoint()
+
+
+def default_overlay_force() -> str | None:
+    """舆情/短线猎手未显式指定 --force-llm 时的默认路由。local-only → peak。"""
+    return "peak" if overlays_local_only() else None
 
 
 def _extract_text(msg: Any) -> str:
@@ -190,6 +204,7 @@ def _chat_ollama(ep: LLMEndpoint, messages: list[dict[str, str]], *,
         "ollama_url": url,
         "think": think,
         "peak_hour": is_peak_hour(),
+        "local_only": overlays_local_only(),
         "max_tokens": max_tokens,
         "usage": {
             "prompt_tokens": data.get("prompt_eval_count"),
@@ -228,6 +243,7 @@ def _chat_openai(ep: LLMEndpoint, messages: list[dict[str, str]], *,
         "model": ep.model,
         "base_url": ep.base_url,
         "peak_hour": is_peak_hour(),
+        "local_only": overlays_local_only(),
         "max_tokens": max_tokens,
         "usage": {
             "prompt_tokens": getattr(resp.usage, "prompt_tokens", None),
@@ -241,12 +257,25 @@ def chat(messages: list[dict[str, str]], *,
          temperature: float = 0.3, max_tokens: int | None = None,
          force: str | None = None,
          timeout: float | None = None) -> tuple[str, dict[str, Any]]:
-    """调用 LLM；高峰失败自动回落闲时。返回 (text, meta)。"""
+    """调用 LLM。返回 (text, meta)。
+
+    - force='peak' / local-only：只用自部署，不回落 DeepSeek
+    - force='offpeak'：只用云端
+    - force=None 且未开 local-only：高峰本地失败可回落闲时
+    """
     tried: list[str] = []
     errors: list[str] = []
-    primary = resolve_endpoint(force)
+    route = force
+    if route is None and overlays_local_only():
+        route = "peak"
+    primary = resolve_endpoint(route)
     candidates = [primary]
-    if primary.is_peak and force is None:
+    allow_fallback = (
+        primary.is_peak
+        and force is None
+        and not overlays_local_only()
+    )
+    if allow_fallback:
         candidates.append(offpeak_endpoint())
 
     last_err: Exception | None = None

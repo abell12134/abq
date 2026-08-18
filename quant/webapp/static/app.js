@@ -28,6 +28,48 @@ async function getJSON(url) {
   return r.json();
 }
 
+/** 简易 markdown → HTML（行内 + 段落 + 列表），不依赖外部库 */
+function mdToHtml(text) {
+  if (!text) return "";
+  let s = String(text)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    // headings ### / ## / #
+    .replace(/^### (.+)$/gm, "<h5>$1</h5>")
+    .replace(/^## (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^# (.+)$/gm, "<h3>$1</h3>")
+    // bold / italic / code
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>");
+  // 分段：双换行 → <p>，单换行 → <br>
+  const blocks = s.split(/\n{2,}/);
+  return blocks.map(b => {
+    b = b.trim();
+    if (!b) return "";
+    if (b.startsWith("<h") || b.startsWith("<ul") || b.startsWith("<ol")) return b;
+    // 无序列表：- item 或 * item
+    if (/^[-*] /.test(b)) {
+      const items = b.split(/\n/).map(l => `<li>${l.replace(/^[-*] /, "")}</li>`).join("");
+      return `<ul>${items}</ul>`;
+    }
+    // 有序列表：1. item
+    if (/^\d+\.\s/.test(b)) {
+      const items = b.split(/\n/).map(l => `<li>${l.replace(/^\d+\.\s/, "")}</li>`).join("");
+      return `<ol>${items}</ol>`;
+    }
+    // 普通段落
+    return `<p>${b.replace(/\n/g, "<br>")}</p>`;
+  }).join("");
+}
+
+/** 格式化秒数 → 可读时长 */
+function fmtDur(sec) {
+  if (sec == null) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m > 0 ? `${m}分${s}秒` : `${s}秒`;
+}
+
 function mkChart(canvas, cfg) {
   const key = canvas.id || canvas.dataset.k;
   if (charts[key]) charts[key].destroy();
@@ -79,13 +121,14 @@ function applyAccessUI(access = {}) {
       badge.title = `当前 IP ${access.client_ip}，可加入 configs/webapp.local.yaml`;
     }
   }
-  const writeBtns = ["sent-run", "sent-analyze-one", "sent-rerun-one", "swing-run"];
+  const writeBtns = ["sent-run", "sent-analyze-one", "sent-rerun-one", "swing-run",
+                     "rs-run", "rs-analyze-one", "rs-rerun-one"];
   writeBtns.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle("hidden", demo);
   });
   // 刷新按钮演示模式也可用（只读）
-  ["refresh", "sent-refresh", "swing-refresh"].forEach(id => {
+  ["refresh", "sent-refresh", "swing-refresh", "rs-refresh"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.remove("hidden");
   });
@@ -93,6 +136,11 @@ function applyAccessUI(access = {}) {
   if (codeInput) {
     codeInput.disabled = demo;
     codeInput.placeholder = demo ? "演示模式：仅可浏览已有报告" : "代码 600519 / SH600519";
+  }
+  const rsCodeInput = document.getElementById("rs-code");
+  if (rsCodeInput) {
+    rsCodeInput.disabled = demo;
+    rsCodeInput.placeholder = demo ? "演示模式：仅可浏览已有报告" : "代码 600519 / SH600519";
   }
   const visitTitle = document.getElementById("visit-stats-title");
   const visitBox = document.getElementById("visit-stats");
@@ -978,6 +1026,368 @@ document.getElementById("sent-rerun-one")?.addEventListener("click", () => {
   triggerSentimentRun({ instrument: sentInst, btn, label: "重新分析本股" });
 });
 
+// ----------------- 研究分析 -----------------
+const RESEARCH_JOB_KEY = "research_job_v1";
+let rsInst = null;
+let rsJobTimer = null;
+
+const RS_DIR_LABEL = { up: "看涨", down: "看跌", hold: "观望" };
+const RS_ACTION_LABEL = { buy: "买入", sell: "卖出", hold: "持有" };
+const RS_CONSENSUS_LABEL = { agree: "一致", partial: "部分一致", disagree: "分歧" };
+
+function saveRsJobLocal(job) {
+  try {
+    if (!job || job.status === "idle") localStorage.removeItem(RESEARCH_JOB_KEY);
+    else localStorage.setItem(RESEARCH_JOB_KEY, JSON.stringify(job));
+  } catch (_) { /* ignore */ }
+}
+
+function rsDirClass(d) {
+  return d === "up" ? "ok" : d === "down" ? "danger" : "neutral";
+}
+
+function renderRsProgress(job) {
+  const box = document.getElementById("rs-progress");
+  if (!box || !job) return;
+  const st = job.status || "idle";
+  if (st === "idle") {
+    box.classList.add("hidden");
+    box.classList.remove("done", "error");
+    return;
+  }
+  box.classList.remove("hidden");
+  box.classList.toggle("done", st === "done");
+  box.classList.toggle("error", st === "error");
+  const pct = Math.max(0, Math.min(100, Number(job.pct) || 0));
+  const bar = document.getElementById("rs-progress-bar");
+  const pctEl = document.getElementById("rs-progress-pct");
+  const label = document.getElementById("rs-progress-label");
+  const msg = document.getElementById("rs-progress-msg");
+  if (bar) bar.style.setProperty("--p", (pct / 100).toFixed(4));
+  if (pctEl) pctEl.textContent = pct + "%";
+  const target = job.current || (job.account ? `账户 ${job.account}` : "研究宇宙");
+  if (label) {
+    if (st === "running") label.textContent = `研究进行中 · ${target}`;
+    else if (st === "done") label.textContent = `研究完成 · ${target}`;
+    else if (st === "error") label.textContent = `研究失败 · ${target}`;
+    else label.textContent = "研究状态";
+  }
+  if (msg) {
+    const extra = job.done_count != null && job.total
+      ? `（${job.done_count}/${job.total}）` : "";
+    msg.textContent = (job.message || job.last_line || "—") + extra;
+  }
+}
+
+function stopRsJobPoll() {
+  if (rsJobTimer) { clearInterval(rsJobTimer); rsJobTimer = null; }
+}
+
+async function pollRsJobOnce() {
+  try {
+    const job = await getJSON("/api/research/job");
+    renderRsProgress(job);
+    saveRsJobLocal(job);
+    if (job.status === "done" || job.status === "error") {
+      stopRsJobPoll();
+      try {
+        await loadResearch(true);
+        if (job.current) await selectResearch(job.current);
+      } catch (_) { /* ignore */ }
+      return job;
+    }
+    if (job.status !== "running") stopRsJobPoll();
+    return job;
+  } catch (e) {
+    console.warn("rs job poll", e);
+    return null;
+  }
+}
+
+function startRsJobPoll() {
+  stopRsJobPoll();
+  pollRsJobOnce();
+  rsJobTimer = setInterval(pollRsJobOnce, 2500);
+}
+
+async function resumeRsJobIfAny() {
+  try {
+    const job = await getJSON("/api/research/job");
+    if (job && (job.status === "running" || job.status === "done" || job.status === "error")) {
+      renderRsProgress(job);
+      saveRsJobLocal(job);
+      if (job.status === "running") startRsJobPoll();
+      return;
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const raw = localStorage.getItem(RESEARCH_JOB_KEY);
+    if (!raw) return;
+    const job = JSON.parse(raw);
+    if (job?.status === "running") { renderRsProgress(job); startRsJobPoll(); }
+    else if (job) renderRsProgress(job);
+  } catch (_) { /* ignore */ }
+}
+
+async function loadResearch(keepSelection = true) {
+  await resumeRsJobIfAny();
+  const prev = keepSelection ? rsInst : null;
+  const cat = await getJSON("/api/research/catalog");
+  const peakEl = document.getElementById("rs-peak");
+  peakEl.textContent = cat.peak_hour ? "高峰 · 自部署" : "闲时 · DeepSeek";
+  peakEl.className = "badge " + (cat.peak_hour ? "peak" : "offpeak");
+  document.getElementById("rs-updated").textContent =
+    cat.updated_at ? ("更新 " + cat.updated_at) : "尚无报告";
+
+  const list = document.getElementById("rs-list");
+  list.innerHTML = "";
+  const items = cat.instruments || [];
+  if (!items.length) {
+    list.innerHTML = '<div class="empty" style="padding:12px">研究宇宙为空</div>';
+    document.getElementById("rs-empty").classList.remove("hidden");
+    document.getElementById("rs-detail").classList.add("hidden");
+    return;
+  }
+  items.forEach(it => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sent-item" + (prev === it.instrument ? " active" : "");
+    const codeOnly = String(it.instrument || "").replace(/^(SH|SZ)/, "");
+    const dir = it.merged_direction;
+    const dirLbl = RS_DIR_LABEL[dir] || "—";
+    const conf = it.merged_confidence == null ? "" : Number(it.merged_confidence).toFixed(2);
+    const srcs = (it.sources || []).join("/");
+    b.innerHTML = `<div><span class="code">${codeOnly}</span>`
+      + `<span class="name">${it.name || ""}</span></div>`
+      + `<div class="snip">${srcs ? ("来源 " + srcs) : "—"}</div>`
+      + `<span class="pill ${rsDirClass(dir)}">${dirLbl} ${conf}</span>`;
+    b.dataset.instrument = it.instrument;
+    b.onclick = () => selectResearch(it.instrument);
+    list.appendChild(b);
+  });
+  const pick = (prev && items.some(x => x.instrument === prev)) ? prev : items[0].instrument;
+  await selectResearch(pick);
+}
+
+function rsVerdictBlock(prefix, v) {
+  const action = v?.action;
+  const actLbl = RS_ACTION_LABEL[action] || (v?.parse_error ? "解析失败" : "—");
+  const cap = document.getElementById(prefix + "-action");
+  if (cap) {
+    cap.textContent = `${actLbl} · 置信 ${v?.confidence == null ? "—" : Number(v.confidence).toFixed(2)}`;
+    cap.className = "sent-pill " + rsDirClass(
+      action === "buy" ? "up" : action === "sell" ? "down" : "hold");
+  }
+  const sumEl = document.getElementById(prefix + "-summary");
+  if (sumEl) sumEl.innerHTML = mdToHtml(v?.summary || "—");
+  const ul = document.getElementById(prefix + "-reasons");
+  const reasons = v?.reasons || [];
+  ul.innerHTML = reasons.length
+    ? reasons.map(r => `<li>${mdToHtml(r)}</li>`).join("")
+    : "<li class='empty'>暂无</li>";
+  const meta = document.getElementById(prefix + "-meta");
+  if (meta) {
+    const parts = [];
+    if (v?.target_price) parts.push("目标价 ¥" + v.target_price);
+    if (v?.horizon_days) parts.push("窗口 " + v.horizon_days + " 日");
+    if (v?.stop_pct != null) parts.push("止损 " + (v.stop_pct * 100).toFixed(1) + "%");
+    if (v?.risk_tags?.length) parts.push("⚠ " + v.risk_tags.join("、"));
+    if (v?.parse_error) parts.push("⚠ 裁决 JSON 解析异常");
+    meta.textContent = parts.join(" · ") || "";
+  }
+}
+
+async function selectResearch(instrument) {
+  rsInst = instrument;
+  document.querySelectorAll("#rs-list .sent-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.instrument === instrument);
+  });
+  document.getElementById("rs-empty").classList.add("hidden");
+  document.getElementById("rs-detail").classList.remove("hidden");
+
+  const data = await getJSON(`/api/research/${instrument}`);
+  const r = data.report;
+  if (!r) {
+    document.getElementById("rs-empty").classList.remove("hidden");
+    document.getElementById("rs-empty").textContent = `${instrument} 尚无研究报告，请点击「全量研究」或「重新研究本股」。`;
+    document.getElementById("rs-detail").classList.add("hidden");
+    return;
+  }
+
+  const codeOnly = String(instrument).replace(/^(SH|SZ)/, "");
+  document.getElementById("rs-name").textContent = r.name || instrument;
+  const codePill = document.getElementById("rs-code-pill");
+  codePill.textContent = codeOnly || instrument;
+  codePill.className = "sent-pill " + rsDirClass(r.merged_direction);
+  document.getElementById("rs-date-pill").textContent =
+    r.date ? (`报告日 ${r.date}`) : "报告日 —";
+  document.getElementById("rs-sub").textContent = `${instrument} · 研究分析 · 双语裁决`;
+
+  // 来源标签
+  const tags = document.getElementById("rs-tags");
+  const srcMap = { sentiment: "舆情", swing: "短线", orders: "订单", manual: "手动" };
+  tags.innerHTML = (r.sources || []).map(s => `<span class="tag">${srcMap[s] || s}</span>`).join("");
+
+  // 合并方向 / 一致性 / pred_id / 覆盖
+  const dir = r.merged_direction;
+  const dirEl = document.getElementById("rs-direction");
+  dirEl.textContent = RS_DIR_LABEL[dir] || "—";
+  dirEl.className = "value " + rsDirClass(dir);
+  document.getElementById("rs-conf-sub").textContent =
+    r.merged_confidence == null ? "置信 —" : ("置信 " + Number(r.merged_confidence).toFixed(2));
+
+  const cons = r.consensus;
+  const consEl = document.getElementById("rs-consensus");
+  consEl.textContent = RS_CONSENSUS_LABEL[cons] || "—";
+  consEl.className = "value " + (cons === "agree" ? "ok" : cons === "disagree" ? "danger" : "warn");
+  document.getElementById("rs-consensus-sub").textContent =
+    `CN ${RS_ACTION_LABEL[r.verdict_cn?.action] || "—"} / EN ${RS_ACTION_LABEL[r.verdict_en?.action] || "—"}`;
+
+  const predEl = document.getElementById("rs-predid");
+  predEl.textContent = r.pred_id || "未入账";
+  predEl.className = "value " + (r.pred_id ? "ok" : "neutral");
+  document.getElementById("rs-predid-sub").textContent =
+    r.merged_direction === "hold" ? "hold 不入账" : "可结算 shadow";
+
+  const bs = (r.meta?.bundle_stats) || {};
+  document.getElementById("rs-coverage").textContent =
+    bs.market_ok ? (bs.market_bars || "OK") : "无行情";
+  document.getElementById("rs-coverage-sub").textContent =
+    `新闻 ${bs.news_count ?? 0} · 基面 ${bs.has_fundamentals ? "有" : "无"} · 舆情 ${bs.has_sentiment ? "有" : "无"}`;
+
+  // CN / EN 裁决块
+  rsVerdictBlock("rs-cn", r.verdict_cn);
+  rsVerdictBlock("rs-en", r.verdict_en);
+
+  // 分析师报告（可折叠，默认展开第一条）
+  const an = document.getElementById("rs-analysts");
+  const kindMap = { market: "📈 行情", news: "📰 新闻", fundamentals: "📊 基面", social: "💬 舆情" };
+  an.innerHTML = "";
+  (r.analysts || []).forEach((a, idx) => {
+    const wrap = document.createElement("details");
+    wrap.className = "rs-analyst";
+    if (idx === 0) wrap.setAttribute("open", "");
+    const head = document.createElement("summary");
+    const langTag = (a.lang || "cn").toUpperCase();
+    head.innerHTML = `${kindMap[a.kind] || a.kind} 分析师 <span class="sent-pill muted">${langTag}</span>`;
+    wrap.appendChild(head);
+    const body = document.createElement("div");
+    body.className = "rs-analyst-body";
+    body.innerHTML = mdToHtml(a.content || "—");
+    wrap.appendChild(body);
+    an.appendChild(wrap);
+  });
+  if (!an.children.length) an.innerHTML = '<div class="empty">暂无分析师报告</div>';
+
+  // 历史
+  const hist = document.getElementById("rs-hist");
+  const rows = data.history || [];
+  if (!rows.length) hist.innerHTML = '<div class="empty">暂无历史</div>';
+  else {
+    let h = "<table><thead><tr><th>日期</th><th>合并</th><th>CN</th><th>一致</th><th>置信</th></tr></thead><tbody>";
+    for (const x of rows) {
+      h += `<tr><td>${x.date || "—"}</td>`
+        + `<td class="${rsDirClass(x.merged_direction)}">${RS_DIR_LABEL[x.merged_direction] || "—"}</td>`
+        + `<td>${RS_ACTION_LABEL[x.action_cn] || "—"}</td>`
+        + `<td>${RS_CONSENSUS_LABEL[x.consensus] || "—"}</td>`
+        + `<td>${x.merged_confidence == null ? "—" : Number(x.merged_confidence).toFixed(2)}</td></tr>`;
+    }
+    hist.innerHTML = h + "</tbody></table>";
+  }
+
+  const metaEl = document.getElementById("rs-meta");
+  if (metaEl) {
+    const m = r.meta || {};
+    const bs = m.bundle_stats || {};
+    const parts = [];
+    if (r.created_at) parts.push(`生成 ${r.created_at}`);
+    if (m.latency_sec != null) parts.push(`总耗时 ${fmtDur(m.latency_sec)}`);
+    // trace 明细
+    const trCn = m.trace_cn || [];
+    const trEn = m.trace_en || [];
+    if (trCn.length || trEn.length) {
+      const stepNames = ["多头", "空头", "评判"];
+      const cnSteps = trCn.map((t, i) => `${stepNames[i] || t.role}${fmtDur(t.latency_sec)}`).join(" → ");
+      const enSteps = trEn.map((t, i) => `${stepNames[i] || t.role}${fmtDur(t.latency_sec)}`).join(" → ");
+      if (cnSteps) parts.push(`CN ${cnSteps}`);
+      if (enSteps) parts.push(`EN ${enSteps}`);
+    }
+    if (bs.market_ok) parts.push(`行情 ${bs.market_bars || "?"} 根`);
+    if (bs.news_count) parts.push(`新闻 ${bs.news_count} 条`);
+    if (m.force_llm) parts.push(`LLM ${m.force_llm}`);
+    if (r.status) parts.push(`状态 ${r.status}`);
+    metaEl.innerHTML = parts.map(p => `<span>${p}</span>`).join(" · ");
+  }
+}
+
+async function triggerResearchRun({ instrument = null, btn = null, label = "全量研究" } = {}) {
+  if (!fullAccess) {
+    alert("演示模式：研究功能仅对白名单 IP 开放");
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "研究中…"; }
+  let triggered = false;
+  try {
+    const q = new URLSearchParams();
+    if (instrument) q.set("instrument", instrument);
+    else q.set("account", "live_manual_10k");
+    q.set("force", "1");
+    const r = await fetch("/api/research/run?" + q.toString(), { method: "POST" });
+    const raw = await r.text();
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${raw.slice(0, 120)}`);
+    let body = {};
+    try { body = JSON.parse(raw); } catch (_) { /* ignore */ }
+    triggered = true;
+    const job = body.job || {
+      status: "running", pct: 5,
+      instrument: body.instrument || instrument,
+      account: body.account,
+      message: body.busy ? "已有任务在跑，接入进度…" : "任务已启动…",
+    };
+    const target = job.instrument || body.instrument || instrument;
+    if (target) rsInst = target;
+    renderRsProgress(job);
+    saveRsJobLocal(job);
+    startRsJobPoll();
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 600000) {
+      await new Promise(r => setTimeout(r, 2500));
+      const cur = await pollRsJobOnce();
+      if (!cur || cur.status === "done" || cur.status === "error" || cur.status === "idle") break;
+    }
+  } catch (e) {
+    console.error(e);
+    if (!triggered) alert("触发研究失败：" + (e.message || e));
+    else alert("研究进度异常：" + (e.message || e));
+    renderRsProgress({ status: "error", pct: 100, message: String(e.message || e), current: instrument });
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+document.getElementById("rs-run")?.addEventListener("click", () => {
+  triggerResearchRun({ btn: document.getElementById("rs-run"), label: "全量研究" });
+});
+document.getElementById("rs-refresh")?.addEventListener("click", () => loadResearch(true));
+document.getElementById("rs-analyze-one")?.addEventListener("click", () => {
+  const input = document.getElementById("rs-code");
+  const inst = normalizeSentCode(input?.value);
+  if (!inst) {
+    alert("请输入有效代码，例如 600519 或 SH600519");
+    input?.focus();
+    return;
+  }
+  input.value = inst;
+  triggerResearchRun({ instrument: inst, btn: document.getElementById("rs-analyze-one"), label: "研究" });
+});
+document.getElementById("rs-code")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("rs-analyze-one")?.click();
+});
+document.getElementById("rs-rerun-one")?.addEventListener("click", () => {
+  if (!rsInst) { alert("请先选择一只已研究的股票"); return; }
+  triggerResearchRun({ instrument: rsInst, btn: document.getElementById("rs-rerun-one"), label: "重新研究本股" });
+});
+
 // ----------------- 短线猎手 -----------------
 const SWING_ACTION_LABEL = { predict: "预测", watch: "观察", reject: "否决" };
 const SWING_STANCE_LABEL = { hold: "持有", exit: "退出", watch: "观察" };
@@ -1677,6 +2087,7 @@ async function loadTab(tab) {
     else if (tab === "daily-ops") await loadDailyOps();
     else if (tab === "sentiment") await loadSentiment(true);
     else if (tab === "swing") await loadSwing();
+    else if (tab === "research") await loadResearch(true);
     else if (tab === "compare") await loadCompare();
     else if (tab === "alerts") await loadAlerts();
     else await loadAccount(tab);

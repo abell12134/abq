@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -46,13 +47,14 @@ PY = sys.executable
 RUN_DAILY = QUANT / "ops" / "run_daily.py"
 REVIEW = QUANT / "ops" / "review_accounts.py"
 
-# 看板纳管的账户：研究 + 实盘 + TA 影子 A/B + 4 万纸上线
+# 看板纳管的账户：研究 + 实盘 + TA 影子 A/B
+# paper_40k_sim 有独立页 /api/paper-40k，未落地 yaml 前不进主列表，
+# 否则 overview / daily-ops 会因 account_config 抛错整页 500。
 ACCOUNTS = [
     "research_sim_100k",
     "live_manual_10k",
     "shadow_ctrl_sim",
     "shadow_ta_sim",
-    "paper_40k_sim",
 ]
 # 四线对比页不纳入 4 万纸上线（资金/约束不同，不当 A/B）
 COMPARE_ACCOUNTS = [
@@ -341,7 +343,21 @@ def _latest_order_day(account: str) -> str | None:
 
 def daily_ops_plan(account: str, order_day: str | None = None) -> dict:
     """读取账户最新（或指定）调仓清单及执行状态。"""
-    cfg = C.account_config(account).get("account", {})
+    try:
+        cfg = C.account_config(account).get("account", {})
+    except FileNotFoundError:
+        return {
+            "account": account,
+            "label": _account_label(account),
+            "mode": "unknown",
+            "order_day": None,
+            "execute_day": None,
+            "status": "empty",
+            "status_label": "账户未配置",
+            "summary": f"缺少 configs/accounts/{account}.yaml",
+            "orders": [],
+            "target_positions": [],
+        }
     mode = cfg.get("mode", "manual")
     order_day = order_day or _latest_order_day(account)
     if not order_day:
@@ -450,9 +466,26 @@ def daily_ops_all() -> dict:
         data_day = C.latest_trading_day()
     except Exception:
         data_day = None
+    plans = []
+    for a in ACCOUNTS:
+        try:
+            plans.append(daily_ops_plan(a))
+        except Exception as exc:
+            plans.append({
+                "account": a,
+                "label": _account_label(a),
+                "mode": "unknown",
+                "order_day": None,
+                "execute_day": None,
+                "status": "empty",
+                "status_label": "读取失败",
+                "summary": str(exc),
+                "orders": [],
+                "target_positions": [],
+            })
     return {
         "data_day": data_day,
-        "plans": [daily_ops_plan(a) for a in ACCOUNTS],
+        "plans": plans,
     }
 
 
@@ -524,12 +557,12 @@ def scheduler_jobs() -> list[dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
-    # 启动时从 MinIO 同步数据（若远端更新）
+    # origin 服务器不从 MinIO 拉取；client 才 sync_on_startup
     try:
-        import sys
-        sys.path.insert(0, str(QUANT / "ops"))
         from minio_sync import sync_on_startup
-        sync_on_startup()
+        r = sync_on_startup()
+        if r.get("action") not in {"disabled", None}:
+            print(f"[minio] 启动同步: {r.get('action')}")
     except Exception as exc:
         print(f"[minio] 启动同步跳过: {exc}")
 
@@ -1209,7 +1242,7 @@ def api_sentiment_run(request: Request,
     log = LOG_DIR / f"sentiment_memory_{datetime.now():%Y-%m-%d}.log"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     cmd = [PY, str(QUANT / "overlays" / "sentiment_memory" / "run_memory.py"),
-           "--lookback", "90"]
+           "--lookback", "90", "--force-llm", "peak"]
     if inst:
         cmd += ["--instruments", inst]
     else:
@@ -1465,7 +1498,8 @@ def api_swing_run(request: Request,
         cmd.append("--track-only")
     if force:
         cmd.append("--force")
-    # 不强制路由：高峰走本地 Ollama（peak），闲时/失败回落 DeepSeek（offpeak）
+    # 默认强制本地 LLM_PEAK_*（见 LLM_OVERLAYS_LOCAL_ONLY）
+    cmd += ["--force-llm", "peak"]
 
     job = SJ.start_job(account=account, dry_run=dry_run, track_only=track_only)
 
@@ -1511,6 +1545,191 @@ def api_swing_run(request: Request,
         "track_only": track_only,
         "log": str(log),
         "job_id": job.get("id"),
+    }
+
+
+# ----------------- 研究分析（4 分析师 + 中英双辩论 → 可结算预测） -----------------
+
+
+@app.get("/api/research/catalog")
+def api_research_catalog(account: str | None = None):
+    """研究宇宙目录：合并三源（舆情/短线/订单）+ catalog 最新报告摘要。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.research import store as RS  # noqa: WPS433
+    from overlays.research.universe import build_research_universe
+
+    cat = RS.load_catalog()
+    by_inst = {k.upper(): v for k, v in (cat.get("instruments") or {}).items()}
+
+    # 研究宇宙（account 缺则只取已跟踪）
+    try:
+        day = RS.latest_research_day() or datetime.now().strftime("%Y-%m-%d")
+        uni = build_research_universe(day, account=account)
+    except Exception:  # noqa: BLE001
+        uni = []
+    uni_map = {e["instrument"]: e for e in uni}
+
+    instruments = []
+    seen: set[str] = set()
+    # 先放宇宙里的票（带 sources 富化）
+    for inst, e in uni_map.items():
+        ent = by_inst.get(inst, {})
+        instruments.append({
+            "instrument": inst,
+            "name": ent.get("name") or "",
+            "sources": e.get("sources") or [],
+            "swing_action": e.get("swing_action"),
+            "swing_score": e.get("swing_score"),
+            "order_side": e.get("order_side"),
+            "sentiment_score": e.get("sentiment_score"),
+            "latest_date": ent.get("latest_date"),
+            "merged_direction": ent.get("merged_direction"),
+            "merged_confidence": ent.get("merged_confidence"),
+            "consensus": ent.get("consensus"),
+            "action_cn": ent.get("action_cn"),
+            "action_en": ent.get("action_en"),
+            "pred_id": ent.get("pred_id"),
+        })
+        seen.add(inst)
+    # 再补 catalog 里有但宇宙没覆盖的（历史跟踪）
+    for inst, ent in by_inst.items():
+        if inst in seen:
+            continue
+        instruments.append({
+            "instrument": inst, "name": ent.get("name") or "",
+            "sources": ent.get("sources") or [],
+            "latest_date": ent.get("latest_date"),
+            "merged_direction": ent.get("merged_direction"),
+            "merged_confidence": ent.get("merged_confidence"),
+            "consensus": ent.get("consensus"),
+            "action_cn": ent.get("action_cn"),
+            "action_en": ent.get("action_en"),
+            "pred_id": ent.get("pred_id"),
+        })
+
+    instruments.sort(key=lambda x: (
+        0 if x.get("latest_date") else 1,
+        str(x.get("latest_date") or ""),
+    ), reverse=True)
+    return {
+        "updated_at": cat.get("updated_at"),
+        "peak_hour": _sentiment_peak_now(),
+        "account": account,
+        "instruments": instruments,
+    }
+
+
+@app.get("/api/research/job")
+def api_research_job():
+    """当前/最近一次研究分析任务进度。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.research import job as RJ  # noqa: WPS433
+    return RJ.read_job()
+
+
+@app.get("/api/research/{instrument}")
+def api_research_instrument(instrument: str, days: int = 90):
+    """单票研究报告（CN/EN 双裁决 + 分析师）+ 近 N 日历史。"""
+    inst = instrument.upper()
+    if not (len(inst) >= 6 and inst[:2].isalpha() and inst[2:].isdigit()):
+        raise HTTPException(400, "标的格式应为 SH600000 / SZ000001")
+    sys.path.insert(0, str(QUANT))
+    from overlays.research import store as RS  # noqa: WPS433
+    report = RS.load_report(inst)
+    history = RS.list_reports(inst, limit=min(max(days, 30), 120))
+    return {
+        "instrument": inst,
+        "report": report,
+        "history": history,
+        "peak_hour": _sentiment_peak_now(),
+    }
+
+
+@app.post("/api/research/run")
+def api_research_run(request: Request,
+                     account: str = "live_manual_10k",
+                     dry_run: bool = False,
+                     force: bool = False,
+                     instrument: str | None = None):
+    """手动触发研究分析（后台线程）。
+
+    - 不传 instrument：跑三源合并研究宇宙
+    - 传 instrument：只研究该票
+    """
+    _require_full_access(request)
+    sys.path.insert(0, str(QUANT))
+    from overlays.sentiment_memory.run_memory import normalize_instrument
+    from overlays.research import job as RJ  # noqa: WPS433
+
+    inst = None
+    if instrument:
+        inst = normalize_instrument(instrument)
+        if not inst:
+            raise HTTPException(400, "标的格式应为 SH600000 / SZ000001 / 600000")
+    else:
+        _check(account)
+
+    running = RJ.read_job()
+    if running.get("status") == "running":
+        return {
+            "ok": True, "queued": False, "busy": True, "job": running,
+            "account": running.get("account"),
+            "dry_run": bool(running.get("dry_run")),
+            "log": str(LOG_DIR / f"research_{datetime.now():%Y-%m-%d}.log"),
+        }
+
+    log = LOG_DIR / f"research_{datetime.now():%Y-%m-%d}.log"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    cmd = [PY, str(QUANT / "overlays" / "research" / "run_research.py"),
+           "--force-llm", "peak"]
+    if inst:
+        cmd += ["--instruments", inst]
+    else:
+        cmd += ["--account", account]
+    if dry_run:
+        cmd.append("--dry-run")
+    if force:
+        cmd.append("--force")
+
+    job = RJ.start_job(account=None if inst else account, dry_run=dry_run)
+    if inst:
+        RJ.write_job({"total": 1, "message": f"研究 {inst}…", "pct": 8})
+
+    def _bg():
+        with log.open("a") as fh:
+            fh.write(f"\n=== {datetime.now():%F %T} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1,
+                    env={**dict(__import__("os").environ), "PYTHONUNBUFFERED": "1"},
+                )
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    fh.write(line)
+                    fh.flush()
+                    try:
+                        RJ.update_from_line(line)
+                    except Exception:
+                        pass
+                rc = proc.wait()
+                cur = RJ.read_job()
+                if cur.get("status") == "running":
+                    RJ.finish_job(
+                        ok=(rc == 0),
+                        message="研究分析完成" if rc == 0 else f"退出码 {rc}",
+                    )
+            except Exception as e:  # noqa: BLE001
+                fh.write(f"[job-error] {e}\n")
+                RJ.finish_job(ok=False, message=str(e)[:200])
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {
+        "ok": True, "queued": True, "busy": False, "job": RJ.read_job(),
+        "account": None if inst else account, "instrument": inst,
+        "dry_run": dry_run, "log": str(log), "job_id": job.get("id"),
     }
 
 

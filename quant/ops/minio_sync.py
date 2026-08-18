@@ -1,15 +1,17 @@
-"""MinIO 数据同步：服务器更新后上传，本地启动时自动拉取。
+"""MinIO 数据同步：origin 服务器只上传；client 本地启动时拉取。
 
 同步内容：
   1. Qlib 行情包 datasets/qlib_data/cn_data（打包为 qlib/cn_data.tar.gz）
   2. quant/data/ 运行时目录（signals、accounts、overlays 等，不含 logs）
 
 配置：configs/global.yaml 的 minio 段 + configs/secret.env 凭证。
+  role=origin（默认，生产服务器）：只 push，启动/ensure_qlib 不 pull
+  role=client（本地开发机，secret.env 设 MINIO_ROLE=client）：启动时 pull
 
 用法：
     python quant/ops/minio_sync.py status
-    python quant/ops/minio_sync.py pull          # 仅当远端更新时拉取
-    python quant/ops/minio_sync.py pull --force
+    python quant/ops/minio_sync.py pull          # 仅 client；origin 默认跳过
+    python quant/ops/minio_sync.py pull --force  # origin 上紧急拉取
     python quant/ops/minio_sync.py push          # 上传本地数据到 MinIO
 """
 
@@ -82,6 +84,15 @@ def minio_settings() -> dict[str, Any] | None:
         or os.environ.get("MINIO_ENDPOINT")
         or cfg.get("endpoint", "118.195.177.58:9000")
     )
+    role = (
+        os.environ.get("MINIO_ROLE")
+        or secret.get("MINIO_ROLE")
+        or cfg.get("role")
+        or "origin"
+    ).strip().lower()
+    if role not in {"origin", "client", "both"}:
+        role = "origin"
+    allow_pull = role in {"client", "both"}
     return {
         "endpoint": endpoint,
         "access_key": access,
@@ -91,7 +102,9 @@ def minio_settings() -> dict[str, Any] | None:
         "qlib_object": cfg.get("qlib_object", "qlib/cn_data.tar.gz"),
         "quant_prefix": cfg.get("quant_data_prefix", "quant-data/"),
         "quant_paths": list(cfg.get("quant_data_paths") or DEFAULT_QUANT_PATHS),
-        "sync_on_startup": bool(cfg.get("sync_on_startup", True)),
+        "role": role,
+        "allow_pull": allow_pull,
+        "sync_on_startup": bool(cfg.get("sync_on_startup", False)) and allow_pull,
     }
 
 
@@ -193,6 +206,12 @@ def _sanity_check_qlib(data_dir: Path) -> tuple[bool, list[str]]:
 def pull_qlib(*, force: bool = False) -> dict[str, Any]:
     """从 MinIO 拉取 Qlib 行情包并原子替换本地 cn_data。"""
     client, s = _client()
+    if not s.get("allow_pull") and not force:
+        return {
+            "ok": True,
+            "action": "skip",
+            "reason": f"role={s.get('role')} 本机是数据源，不从 MinIO 拉取",
+        }
     bucket = s["bucket"]
     obj = s["qlib_object"]
     data_dir = QLIB_DATA
@@ -283,6 +302,12 @@ def _remote_key(prefix: str, rel: Path) -> str:
 def pull_quant_data(*, force: bool = False) -> dict[str, Any]:
     """拉取 quant/data 子目录（跳过 logs）。"""
     client, s = _client()
+    if not s.get("allow_pull") and not force:
+        return {
+            "ok": True,
+            "action": "skip",
+            "reason": f"role={s.get('role')} 本机是数据源，不从 MinIO 拉取",
+        }
     bucket = s["bucket"]
     prefix = s["quant_prefix"]
     paths = s["quant_paths"]
@@ -340,10 +365,11 @@ def push_quant_data() -> dict[str, Any]:
 
 
 def sync_on_startup(*, force: bool = False) -> dict[str, Any]:
-    """启动时调用：若远端更新则拉取 Qlib + quant/data。失败不抛异常。"""
+    """启动时调用：仅 client 角色拉取。origin 服务器跳过。失败不抛异常。"""
     s = minio_settings()
-    if not s or not s.get("sync_on_startup", True):
-        return {"ok": True, "action": "disabled"}
+    if not s or not s.get("allow_pull") or not s.get("sync_on_startup"):
+        role = (s or {}).get("role", "origin")
+        return {"ok": True, "action": "disabled", "reason": f"role={role} 不在启动时拉取"}
 
     results: dict[str, Any] = {"ok": True, "parts": {}}
     try:
@@ -375,6 +401,9 @@ def status() -> dict[str, Any]:
         "endpoint": s["endpoint"],
         "bucket": s["bucket"],
         "local_qlib_last": local_qlib_last_date(),
+        "role": s["role"],
+        "allow_pull": s["allow_pull"],
+        "sync_on_startup": s["sync_on_startup"],
     }
     try:
         client, _ = _client()

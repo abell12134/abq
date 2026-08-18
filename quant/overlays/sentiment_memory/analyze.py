@@ -2,29 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
+
+from overlays.llm_json import parse_json_object
 
 from . import llm_router, prompts_cn, store
 
 
 def _parse_report(text: str) -> dict[str, Any] | None:
-    text = (text or "").strip()
-    if not text:
-        return None
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
-    blob = fence.group(1) if fence else None
-    if blob is None:
-        m = re.search(r"\{.*\}", text, re.S)
-        blob = m.group(0) if m else None
-    if not blob:
-        return None
-    try:
-        obj = json.loads(blob)
-    except json.JSONDecodeError:
-        return None
-    return obj if isinstance(obj, dict) else None
+    return parse_json_object(text)
 
 
 def analyze_instrument(
@@ -96,7 +82,7 @@ def analyze_instrument(
             "stance": "可继续跟踪",
             "news_count": len(news),
             "memories_used": len(memories),
-            "meta": {**meta, "parse_error": True, "raw_snippet": (text or "")[:500]},
+            "meta": {**meta, "parse_error": True, "raw": (text or "")[:8000]},
             "news_preview": [
                 {"source": n.get("source"), "published": n.get("published"),
                  "title": n.get("title"), "url": n.get("url")}

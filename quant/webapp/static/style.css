@@ -281,6 +281,34 @@ td.clickable:hover { text-decoration: underline; }
 .sent-ul { margin: 0; padding-left: 18px; color: var(--text); line-height: 1.7; }
 .sent-ul li { margin-bottom: 6px; }
 .sent-ul li.empty { list-style: none; margin-left: -18px; color: var(--muted); }
+/* 研究分析：可折叠分析师报告 */
+.rs-analysts { display: flex; flex-direction: column; gap: 8px; }
+.rs-analyst {
+  background: var(--inset); border-radius: 6px; padding: 0;
+  border: 1px solid var(--border, #2a3340);
+}
+.rs-analyst summary {
+  cursor: pointer; padding: 8px 12px; font-size: 13px; font-weight: 600;
+  color: var(--text); list-style: none;
+}
+.rs-analyst summary::-webkit-details-marker { display: none; }
+.rs-analyst summary::before { content: "▸ "; color: var(--muted); }
+.rs-analyst[open] summary::before { content: "▾ "; }
+.rs-analyst pre {
+  margin: 0; padding: 8px 12px 12px; font-size: 12.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; color: #c7d0db;
+  max-height: 360px; overflow: auto;
+}
+.rs-analyst-body {
+  padding: 4px 12px 12px; font-size: 13px; line-height: 1.7;
+  color: #c7d0db; max-height: 480px; overflow: auto;
+}
+.rs-analyst-body p { margin: 0 0 10px; }
+.rs-analyst-body ul, .rs-analyst-body ol { margin: 4px 0 10px; padding-left: 20px; }
+.rs-analyst-body li { margin-bottom: 4px; }
+.rs-analyst-body h4, .rs-analyst-body h5 { margin: 12px 0 6px; font-size: 13px; color: var(--text); }
+.rs-analyst-body strong { color: var(--text); }
+.rs-analyst-body code { background: var(--inset); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 .table-wrap.embedded {
   margin: 0; border: 0; background: transparent; border-radius: 0;
   max-height: 280px; overflow: auto;

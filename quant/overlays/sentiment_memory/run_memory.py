@@ -25,7 +25,11 @@ import common as C  # noqa: E402
 from overlays.sentiment_memory import analyze as A  # noqa: E402
 from overlays.sentiment_memory import sources as S  # noqa: E402
 from overlays.sentiment_memory import store  # noqa: E402
-from overlays.sentiment_memory.llm_router import is_peak_hour  # noqa: E402
+from overlays.sentiment_memory.llm_router import (  # noqa: E402
+    default_overlay_force,
+    is_peak_hour,
+    overlays_local_only,
+)
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -130,7 +134,9 @@ def run(
 ) -> int:
     day = day or datetime.now(TZ).strftime("%Y-%m-%d")
     store.ensure_dirs()
-    print(f"[sentiment_memory] day={day} peak={is_peak_hour()} "
+    force_llm = force_llm if force_llm is not None else default_overlay_force()
+    print(f"[sentiment_memory] day={day} local_only={overlays_local_only()} "
+          f"force_llm={force_llm or 'auto'} peak_hour={is_peak_hour()} "
           f"lookback={lookback_days}d")
 
     g = ingest_global(lookback_days=min(lookback_days, 14))
@@ -195,7 +201,8 @@ def main() -> int:
                    help="回看天数，默认 90（约三个月）；允许 30–90")
     p.add_argument("--dry-run", action="store_true", help="只采集入库，不调 LLM")
     p.add_argument("--ingest-only", action="store_true", help="只拉全局电报")
-    p.add_argument("--force-llm", choices=["peak", "offpeak"], default=None)
+    p.add_argument("--force-llm", choices=["peak", "offpeak"], default="peak",
+                   help="LLM 路由：默认 peak=本地自部署；offpeak=DeepSeek")
     args = p.parse_args()
     lookback = max(30, min(90, int(args.lookback)))
     instruments = None

@@ -158,7 +158,8 @@ def evening(args, day: str) -> int:
         cfg.get("execution", {}).get("use_sentiment_memory", use_sent))
     if use_mem and args.account:
         mem = [PY, str(QUANT / "overlays" / "sentiment_memory" / "run_memory.py"),
-               "--date", day, "--account", args.account, "--lookback", "90"]
+               "--date", day, "--account", args.account, "--lookback", "90",
+               "--force-llm", "peak"]
         if args.dry_run_sentiment_memory:
             mem += ["--dry-run"]
         if not step("舆情长期记忆", mem, day, fatal=False):
@@ -170,7 +171,7 @@ def evening(args, day: str) -> int:
         cfg.get("execution", {}).get("use_swing_hunter"))
     if use_swing and args.account:
         swing = [PY, str(QUANT / "overlays" / "swing_hunter" / "run_swing.py"),
-                 "--date", day, "--account", args.account]
+                 "--date", day, "--account", args.account, "--force-llm", "peak"]
         if args.dry_run_swing:
             swing += ["--dry-run"]
         if getattr(args, "force_swing", False):

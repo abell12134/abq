@@ -54,12 +54,14 @@ risk:
 webapp: {}
 
 # MinIO 数据同步（凭证见 configs/secret.env）
-# 服务器 update_daily 后自动 push；本地启动时自动 pull
+# origin = 本机是数据源，只 push 不 pull（生产服务器）
+# client = 启动时从 MinIO 拉取（本地开发机：secret.env 设 MINIO_ROLE=client）
 minio:
   enabled: true
+  role: origin
   endpoint: 118.195.177.58:9000   # 服务器内网可设 MINIO_ENDPOINT=10.10.0.5:9000
   bucket: abq-data
   secure: false
   qlib_object: qlib/cn_data.tar.gz
   quant_data_prefix: quant-data/
-  sync_on_startup: true
+  sync_on_startup: false

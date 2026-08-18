@@ -99,5 +99,7 @@ def build_user_prompt(
         '  "watchpoints": ["后续跟踪点，最多5条"],',
         '  "stance": "可继续跟踪|谨慎|建议回避（研究口径，非投资建议）"',
         "}",
+        "",
+        "注意：只输出这一个 JSON 对象。字符串内不要使用英文双引号，书名/评级用「」。",
     ]
     return "\n".join(lines)

@@ -64,11 +64,12 @@ def already_ready() -> bool:
 def extract(force: bool = False) -> Path:
     out = EXTRACT_ROOT / "cn_data"
 
-    # 每次启动检查 MinIO 是否有更新（即使本地已有数据）
+    # 仅 client 角色从 MinIO 拉行情；origin 服务器是数据源，只上传不拉取。
     try:
         from minio_sync import minio_settings, pull_qlib
 
-        if minio_settings():
+        s = minio_settings()
+        if s and s.get("allow_pull"):
             r = pull_qlib(force=force)
             if r.get("action") == "pulled":
                 print(f"[OK] 已从 MinIO 同步: {out}")

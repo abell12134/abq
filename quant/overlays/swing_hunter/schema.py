@@ -212,9 +212,9 @@ def mark_skip_meta(pf: PredictionFile, account: str | None) -> PredictionFile:
 def latest_prediction_day() -> str | None:
     """取最适合展示的预测日。
 
-    优先「日历日最新」的有效结果，而不是「watch 数量最多」的旧日——
-    否则新跑完的 08-07（137 watch + 8 predict）会被更旧的 08-06（145 watch）压住，
-    看板上每日报告看起来像没更新。
+    优先「日历日最新」的有效结果（status 正常且有 predict/watch），
+    而不是「watch 更多」或「有 predict」的旧日——否则新日全是 watch
+    时，看板日报会停在更早那条还有 predict 的报告上。
     """
     d = ROOT / "predictions"
     if not d.exists():
@@ -226,13 +226,15 @@ def latest_prediction_day() -> str | None:
     def _rank(day: str) -> tuple:
         pf = read_predictions(day)
         if not pf:
-            return (0, 0, 0, 0, day)
+            return (0, 0, day)
         ok = 1 if pf.status not in {"dry_run", "fail_open"} else 0
         n_pred = sum(1 for p in pf.predictions if p.action == "predict")
         n_watch = sum(1 for p in pf.predictions if p.action == "watch")
         useful = 1 if (n_pred + n_watch) > 0 else 0
-        # 有效状态 > 有观察/预测内容 > 有 predict > 日期新
-        return (ok, useful, 1 if n_pred > 0 else 0, day)
+        # 有效状态 > 有观察/预测内容 > 日历日最新
+        # 不把「有 predict」压过新日期：新日全是 watch（predict=0）时
+        # 仍应展示当日报告，否则看板会停在更旧的「有 predict」那天。
+        return (ok, useful, day)
 
     return max(days, key=_rank)
 
