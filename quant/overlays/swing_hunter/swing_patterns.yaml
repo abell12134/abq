@@ -86,4 +86,135 @@ patterns:
   - 实盘 2026-08-04@9.24 → 2026-08-06@11.42 (+23.6%)
   risk_tags: []
   notes: 实盘 fills 达标回合；用于候选加权与评测夹具
-updated_at: '2026-08-07 10:02:52'
+- id: hit_20260813_SH600988
+  status: candidate
+  source: swing_hit
+  mined_at: '2026-08-18 22:59:44'
+  instrument: SH600988
+  name: 赤峰黄金
+  pred_date: '2026-08-13'
+  result: hit
+  result_return: 0.1205
+  hit_tier: 1
+  days_held: 3
+  catalysts:
+  - 题材板块启动
+  confidence: 0.28
+  swing_score: 0.4809
+  factor_brief:
+    last_close: 38.66
+    ret_5d: -0.0639
+    ret_20d: 0.1167
+    ret_60d: 0.0835
+    near_60d_high: -0.1594
+    vol_20d: 0.0527
+    vol_ratio: 1.08
+  reasons:
+  - 贵金属概念近期舆情回暖，板块共振迹象存在
+  - 短期回调-6.39%距60日高点-15.94%，技术反弹空间打开但量价配合不足
+  - 无规则关键词催化且模型信号弱，10日内+10%驱动不足
+  risk_tags:
+  - 题材退潮风险
+  - 流动性风险
+  - 高位放量滞涨
+  notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
+- id: hit_20260810_SZ002385
+  status: candidate
+  source: swing_hit
+  mined_at: '2026-08-20 22:33:39'
+  instrument: SZ002385
+  name: 大北农
+  pred_date: '2026-08-10'
+  result: hit
+  result_return: 0.1036
+  hit_tier: 1
+  days_held: 8
+  catalysts:
+  - 股东增持回购
+  - 题材板块启动
+  confidence: 0.3
+  swing_score: 0.5335
+  factor_brief:
+    last_close: 3.09
+    ret_5d: -0.0064
+    ret_20d: 0.0334
+    ret_60d: -0.1716
+    near_60d_high: -0.1694
+    vol_20d: 0.0164
+    vol_ratio: 1.06
+  reasons:
+  - 回购注销完成构成边际利好，猪肉板块当日上涨4.06%、农业资金净流入，存在弱板块共振
+  - 股价处于60日相对低位、量能温和，未出现立案/ST等硬伤，但单日行情持续性存疑
+  - 量比仅1.06无明显放量，10日+10%目标概率偏低，故给予低置信度预测
+  risk_tags:
+  - 题材退潮风险
+  - 大盘系统性风险
+  - 业绩不及预期风险
+  notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
+- id: hit_20260824_SH600601
+  status: candidate
+  source: swing_hit
+  mined_at: '2026-08-27 22:34:09'
+  instrument: SH600601
+  name: 方正科技
+  pred_date: '2026-08-24'
+  result: hit
+  result_return: 0.1029
+  hit_tier: 1
+  days_held: 3
+  catalysts:
+  - 政策行业利好
+  - 股东增持回购
+  - 业绩超预期
+  confidence: 0.35
+  swing_score: 0.6852
+  factor_brief:
+    last_close: 11.54
+    ret_5d: -0.1116
+    ret_20d: 0.099
+    ret_60d: -0.1407
+    near_60d_high: -0.2724
+    vol_20d: 0.0582
+    vol_ratio: 0.8
+  reasons:
+  - 量化规则三重关键词命中，基本面催化真实性获验证，具备短线弹性支撑
+  - 股价深度回调区间量比偏低，短线需量能配合放大以确认突破
+  - 半年报翻倍题材在板块共振中分流，存在主题消化与流动性压力
+  risk_tags:
+  - 流动性风险
+  - 题材退潮风险
+  - 业绩不及预期风险
+  notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
+- id: hit_20260819_SH603596
+  status: candidate
+  source: swing_hit
+  mined_at: '2026-08-28 22:33:35'
+  instrument: SH603596
+  name: 伯特利
+  pred_date: '2026-08-19'
+  result: hit
+  result_return: 0.12
+  hit_tier: 1
+  days_held: 7
+  catalysts:
+  - 股东增持回购
+  - 政策行业利好
+  confidence: 0.32
+  swing_score: 0.627
+  factor_brief:
+    last_close: 24.85
+    ret_5d: -0.0786
+    ret_20d: 0.0852
+    ret_60d: -0.2717
+    near_60d_high: -0.3093
+    vol_20d: 0.0243
+    vol_ratio: 0.85
+  reasons:
+  - 近期三则回购公告时间紧密、金额明确，构成可验证的资本回报催化
+  - 板块共振方面，市场-wide回购主题及政策关键词同步出现，可提升短期关注度和交易活跃度
+  - 日均成交量虽低但筹码分布相对稳定，具备在回购驱动下放大成交的潜力
+  risk_tags:
+  - 流动性风险
+  - 题材退潮风险
+  notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
+updated_at: '2026-08-28 22:33:35'

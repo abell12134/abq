@@ -1747,3 +1747,324 @@ def api_run(request: Request, stage: str, account: str):
 def _check(account: str) -> None:
     if account not in ACCOUNTS:
         raise HTTPException(404, f"未知账户 {account}")
+
+
+# ----------------------------- 大盘看板（market_board，池内统计，只读） -----------------------------
+from overlays.market_board import store as board_store  # noqa: E402
+
+BOARD_JOB = LOG_DIR / "market_board_job.json"
+BOARD_REFRESH_JOB = LOG_DIR / "market_board_refresh_job.json"
+
+
+def _read_board_job() -> dict:
+    if not BOARD_JOB.exists():
+        return {"status": "idle"}
+    try:
+        return json.loads(BOARD_JOB.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "idle"}
+
+
+def _write_board_job(payload: dict) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    BOARD_JOB.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_board_refresh_job() -> dict:
+    if not BOARD_REFRESH_JOB.exists():
+        return {"status": "idle"}
+    try:
+        return json.loads(BOARD_REFRESH_JOB.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "idle"}
+
+
+def _write_board_refresh_job(payload: dict) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    BOARD_REFRESH_JOB.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _board_payload(day: str | None) -> tuple[str | None, dict | None]:
+    """指定日快照；空则取最新。"""
+    if day:
+        return day, board_store.load_daily(day)
+    return board_store.load_latest_daily()
+
+
+@app.get("/api/board/days")
+def api_board_days():
+    """可用快照日期列表（供前端切换盘后日期）。"""
+    return {"ok": True, "days": board_store.list_daily_days(40)}
+
+
+@app.get("/api/board/overview")
+def api_board_overview(day: str | None = None):
+    """全景：温度计 + 涨跌榜 + 情绪/30日周期 + 指数环境（需求 1/2/4）。"""
+    d, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False, "job": _read_board_job(),
+                "disclaimer": "尚无盘后快照。点「生成快照」或等 evening 自动跑。"}
+    cyc = snap.get("cycle") or {}
+    return {
+        "ok": True, "available": True, "day": snap.get("day"),
+        "snapshot_day": d, "status": snap.get("status"), "errors": snap.get("errors") or [],
+        "pool": snap.get("pool"), "generated": snap.get("generated"),
+        "thermometer": snap.get("thermometer") or {},
+        "temperature": cyc.get("temperature"), "temperature_label": cyc.get("temperature_label"),
+        "emotion": cyc.get("emotion"), "emotion_reasons": cyc.get("emotion_reasons") or [],
+        "period30": cyc.get("period30"), "period30_reasons": cyc.get("period30_reasons") or [],
+        "index_env": snap.get("index_env") or {},
+        "gainers": snap.get("gainers") or [], "losers": snap.get("losers") or [],
+        "job": _read_board_job(),
+        "disclaimer": snap.get("disclaimer"),
+    }
+
+
+@app.get("/api/board/cycle")
+def api_board_cycle(day: str | None = None):
+    """15 日情绪曲线 + 30 日周期序列（需求 2）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    cyc = snap.get("cycle") or {}
+    return {
+        "ok": True, "available": True, "day": snap.get("day"),
+        "series15": cyc.get("series15") or [],
+        "series30": cyc.get("series30") or [],
+        "emotion": cyc.get("emotion"), "period30": cyc.get("period30"),
+        "daily_stats": snap.get("daily_stats") or [],
+    }
+
+
+@app.get("/api/board/ladder")
+def api_board_ladder(day: str | None = None):
+    """连板梯队 + 存活率 + 行业分布（需求 4、5 部分）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    return {
+        "ok": True, "available": True, "day": snap.get("day"),
+        "ladder": snap.get("ladder") or {},
+        "industry_dist": snap.get("industry_dist") or [],
+        "thermometer": snap.get("thermometer") or {},
+    }
+
+
+@app.get("/api/board/strong")
+def api_board_strong(day: str | None = None):
+    """强势个股榜（需求 7，P1 三维口径）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    strong = snap.get("strong") or {}
+    return {
+        "ok": True, "available": True, "day": snap.get("day"),
+        "stocks": strong.get("stocks") or [],
+        "weights": strong.get("weights") or {},
+        "caliber": strong.get("caliber"),
+    }
+
+
+@app.post("/api/board/run")
+def api_board_run(request: Request, day: str | None = None, force: bool = False):
+    """后台重跑 run_board.py 生成盘后快照（fail-open，不改订单）。"""
+    _require_full_access(request)
+    job = _read_board_job()
+    if job.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": job}
+    started = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+    _write_board_job({"status": "running", "started": started,
+                      "message": "正在统计池内涨跌停/周期/梯队…", "pct": 10})
+    log_file = LOG_DIR / f"market_board_{datetime.now():%Y-%m-%d}.log"
+    cmd = [PY, str(QUANT / "overlays" / "market_board" / "run_board.py")]
+    if day:
+        cmd += ["--day", day]
+    if force:
+        cmd += ["--force"]
+
+    def _bg():
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n=== {started} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, bufsize=1, cwd=str(QUANT),
+                    env={**dict(os.environ), "PYTHONUNBUFFERED": "1"},
+                )
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    fh.write(line)
+                    fh.flush()
+                rc = proc.wait()
+                _write_board_job({
+                    "status": "ok" if rc == 0 else "error",
+                    "started": started,
+                    "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                    "message": "已更新" if rc == 0 else f"退出码 {rc}",
+                    "pct": 100, "rc": rc,
+                })
+            except Exception as exc:  # noqa: BLE001
+                _write_board_job({
+                    "status": "error", "started": started,
+                    "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                    "message": str(exc), "pct": 100,
+                })
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "busy": False, "job": _read_board_job(),
+            "log": str(log_file)}
+
+
+@app.get("/api/board/intraday")
+def api_board_intraday():
+    """盘中实时快照（手动刷新产物）：温度计/涨跌榜/涨停预警/封单散点。"""
+    data = board_store.load_intraday()
+    if not data:
+        return {"ok": True, "available": False,
+                "disclaimer": "尚无盘中快照。点「刷新行情」拉取实时报价（约10秒）。"}
+    return {"ok": True, "available": True, **data, "job": _read_board_refresh_job()}
+
+
+@app.post("/api/board/refresh")
+def api_board_refresh(request: Request):
+    """手动拉取腾讯批量报价，写 intraday/latest.json（后台执行）。"""
+    _require_full_access(request)
+    job = _read_board_refresh_job()
+    if job.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": job}
+    started = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+    _write_board_refresh_job({"status": "running", "started": started,
+                              "message": "正在拉取池内批量实时报价…", "pct": 20})
+
+    def _bg():
+        try:
+            from overlays.market_board import intraday as board_intraday
+            payload = board_intraday.build_intraday()
+            ok = bool(payload.get("ok"))
+            _write_board_refresh_job({
+                "status": "ok" if ok else "error",
+                "started": started,
+                "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                "message": (f"已刷新 {payload.get('quotes_ok')}/{payload.get('quotes_total')} 只"
+                            if ok else payload.get("error", "刷新失败")),
+                "pct": 100,
+            })
+        except Exception as exc:  # noqa: BLE001
+            _write_board_refresh_job({
+                "status": "error", "started": started,
+                "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                "message": str(exc), "pct": 100,
+            })
+
+    import threading
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "busy": False,
+            "job": _read_board_refresh_job()}
+
+
+@app.get("/api/board/limit-scatter")
+def api_board_limit_scatter():
+    """封单强度散点图数据：优先盘中实时，无盘中快照时回退盘后收盘口径。"""
+    intra = board_store.load_intraday()
+    if intra and intra.get("ok") and intra.get("scatter"):
+        return {"ok": True, "available": True, "mode": "intraday",
+                "generated": intra.get("generated"),
+                "scatter": intra.get("scatter") or [],
+                "warn_near_limit": intra.get("warn_near_limit") or [],
+                "thermometer": intra.get("thermometer") or {}}
+    _, snap = board_store.load_latest_daily()
+    if not snap:
+        return {"ok": True, "available": False,
+                "disclaimer": "无盘后/盘中数据。先生成快照或刷新行情。"}
+    # 盘后口径：无封单数据（EOD 无盘口），散点退化为 连板数×成交额
+    scatter = []
+    for t in (snap.get("ladder") or {}).get("tiers") or []:
+        for s in t.get("stocks") or []:
+            scatter.append({
+                "instrument": s["instrument"], "name": s.get("name"),
+                "industry": s.get("industry"), "x": 0.0,
+                "y": s.get("streak"), "r_amt": round((s.get("amount") or 0) / 1e8, 2),
+                "limit_type": s.get("limit_type"),
+            })
+    for s in (snap.get("ladder") or {}).get("first_boards") or []:
+        scatter.append({
+            "instrument": s["instrument"], "name": s.get("name"),
+            "industry": s.get("industry"), "x": 0.0,
+            "y": 1, "r_amt": round((s.get("amount") or 0) / 1e8, 2),
+            "limit_type": s.get("limit_type"),
+        })
+    return {"ok": True, "available": True, "mode": "eod",
+            "generated": snap.get("generated"), "scatter": scatter,
+            "warn_near_limit": [], "thermometer": snap.get("thermometer") or {},
+            "note": "盘后口径无封单数据（x=0 列）；点「刷新行情」看盘中封单强度。"}
+
+
+@app.get("/api/board/stock/{instrument}")
+def api_board_stock(instrument: str):
+    """单票五维评分卡（点击散点气泡/榜单弹出）。"""
+    from overlays.market_board import stock_card
+    card = stock_card.build_card(instrument)
+    if not card.get("ok"):
+        raise HTTPException(404, card.get("error", "无数据"))
+    return card
+
+
+@app.get("/api/board/themes")
+def api_board_themes(day: str | None = None):
+    """题材热度 + 行业榜（东财概念/行业板块，池内命中标注）（需求 5）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    t = snap.get("themes") or {}
+    return {"ok": True, "available": bool(t.get("available")), "day": snap.get("day"),
+            "concepts": t.get("concepts") or [], "industries": t.get("industries") or [],
+            "industry_dist": snap.get("industry_dist") or []}
+
+
+@app.get("/api/board/rotation")
+def api_board_rotation(day: str | None = None):
+    """板块轮动矩阵：池内行业 × 近5/10/20日涨跌幅（需求 6）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    rot = snap.get("rotation") or {}
+    return {"ok": True, "available": bool(rot.get("rows")), "day": snap.get("day"),
+            "rows": rot.get("rows") or []}
+
+
+@app.get("/api/board/fundflow")
+def api_board_fundflow(day: str | None = None):
+    """资金流向榜：主力净流入/流出 TOP（池内）（需求 8）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    f = snap.get("fundflow") or {}
+    return {"ok": True, "available": bool(f.get("available")), "day": snap.get("day"),
+            "inflow": f.get("inflow") or [], "outflow": f.get("outflow") or []}
+
+
+@app.get("/api/board/news")
+def api_board_news(day: str | None = None):
+    """资讯快讯：全局电报（池内命中标注）+ 池内个股动态（需求 9）。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    n = snap.get("news") or {}
+    return {"ok": True, "available": bool(n.get("available")), "day": snap.get("day"),
+            "global_feed": n.get("global_feed") or [],
+            "pool_feed": n.get("pool_feed") or [],
+            "stats": n.get("stats") or {},
+            "error": n.get("error")}
+
+
+@app.get("/api/board/unlock")
+def api_board_unlock(day: str | None = None):
+    """解禁雷区清单（需求 4）：未来30日、占流通≥1%，高危≥10%标红。"""
+    _, snap = _board_payload(day)
+    if not snap:
+        return {"ok": True, "available": False}
+    return {"ok": True, "available": True, "day": snap.get("day"),
+            "alerts": snap.get("unlock_alerts") or []}

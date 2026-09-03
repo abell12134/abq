@@ -145,12 +145,11 @@ def main() -> int:
         marker = data_dir / ".abq_data_ready"
         marker.write_text(f"updated_by_update_daily tag={tag}\n")
 
-    # 上传至 MinIO，供本地开发机自动同步
+    # 上传 quant/data 至 MinIO（不含 qlib 行情包；qlib 体积大，需时手动 --qlib）
     try:
-        from minio_sync import minio_settings, push_qlib, push_quant_data
+        from minio_sync import minio_settings, push_quant_data
 
         if minio_settings():
-            push_qlib()
             push_quant_data()
     except Exception as exc:
         print(f"[minio] 上传失败（不影响本地更新）: {exc}")

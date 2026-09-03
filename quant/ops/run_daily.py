@@ -179,6 +179,14 @@ def evening(args, day: str) -> int:
         if not step("短线猎手预测", swing, day, fatal=False):
             C.alert("WARN", "短线猎手步骤异常（不影响下单，纯建议层）", day)
 
+    # 大盘看板（纯展示层）：池内涨跌停/情绪周期/连板梯队/强势评分盘后快照；
+    # 不改 orders/，失败 fail-open。可用 configs 全局 market_board.enabled: false 关闭。
+    if cfg.get("market_board", {}).get("enabled", True):
+        board = [PY, str(QUANT / "overlays" / "market_board" / "run_board.py"),
+                 "--day", day]
+        if not step("大盘看板快照", board, day, fatal=False):
+            C.alert("WARN", "大盘看板快照步骤异常（不影响下单，纯展示层）", day)
+
     # 注：不在 evening 预生成 fills 模板——成交日期应为"次日执行日"而非订单日，
     # 在订单日写 fills/<订单日>.csv 会与上一日 postclose 的真实成交文件撞名。
     # 研究线由 simulate_fills 在 postclose 自动产出成交；

@@ -1,9 +1,10 @@
 """高峰/闲时 LLM 路由。
 
 默认（`LLM_OVERLAYS_LOCAL_ONLY=1`）：舆情记忆 / 短线猎手等 overlays **始终**走自部署
-`LLM_PEAK_*`（Ollama / OpenAI 兼容），失败不回落 DeepSeek。
+`LLM_PEAK_*`（Ollama / OpenAI 兼容）；本地不可用时回落 Nous `NOUS_*`（Step 3.7 Flash），
+不回落 DeepSeek。
 
-若关闭 local-only：高峰优先本地，闲时或高峰失败回落 `LLM_*` / DeepSeek。
+若关闭 local-only：高峰优先本地 → Nous → 闲时 `LLM_*` / DeepSeek。
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ def is_peak_hour(now: datetime | None = None) -> bool:
 
 @dataclass
 class LLMEndpoint:
-    label: str  # peak | offpeak
+    label: str  # peak | nous | offpeak
     base_url: str
     api_key: str
     model: str
@@ -80,20 +81,43 @@ def _ollama_root(base_url: str) -> str:
 
 
 def peak_endpoint() -> LLMEndpoint | None:
-    key = _get("LLM_PEAK_API_KEY")
-    base = _get("LLM_PEAK_BASE_URL", "http://127.0.0.1:8001/ollama/v1")
+    base = _get("LLM_PEAK_BASE_URL", "http://127.0.0.1:11434")
+    if not base:
+        return None
+    key = _get("LLM_PEAK_API_KEY") or ""
     model = _get(
         "LLM_PEAK_MODEL",
         "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
     )
-    if not key or not base:
-        return None
     backend = _detect_backend(base, _get("LLM_PEAK_BACKEND"))
     return LLMEndpoint(
         label="peak", base_url=base.rstrip("/"), api_key=key,
         model=model or "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
         is_peak=True, backend=backend,
     )
+
+
+def nous_endpoint() -> LLMEndpoint | None:
+    """Nous Research 推理 API（OpenAI 兼容），本地高峰模型不可用时的回落。"""
+    key = _get("NOUS_KEY") or _get("NOUS_API_KEY")
+    base = _get("NOUS_URL", "https://inference-api.nousresearch.com/v1")
+    # Portal 免费档模型 ID 带 :free；无后缀的是按量计费
+    model = _get("NOUS_MODEL", "stepfun/step-3.7-flash:free")
+    if not key or not base:
+        return None
+    return LLMEndpoint(
+        label="nous", base_url=base.rstrip("/"), api_key=key,
+        model=model or "stepfun/step-3.7-flash:free",
+        is_peak=False, backend="openai",
+    )
+
+
+def _nous_portal_tags() -> list[str]:
+    """Nous Portal 免费模型要求的 attribution tags（extra_body.tags）。"""
+    product = _get("NOUS_PRODUCT", "quant") or "quant"
+    client = _get("NOUS_CLIENT", "quant-llm-router-v1") or "quant-llm-router-v1"
+    user = _get("NOUS_USER", "anonymous") or "anonymous"
+    return [f"product={product}", f"client={client}", f"user={user}"]
 
 
 def offpeak_endpoint() -> LLMEndpoint:
@@ -112,23 +136,53 @@ def offpeak_endpoint() -> LLMEndpoint:
 
 
 def resolve_endpoint(force: str | None = None) -> LLMEndpoint:
-    """force: 'peak' | 'offpeak' | None（local-only 或按时段自动）。"""
+    """force: 'peak' | 'nous' | 'offpeak' | None（local-only 或按时段自动）。"""
     if force == "offpeak":
         return offpeak_endpoint()
+    if force == "nous":
+        ep = nous_endpoint()
+        if ep is None:
+            raise RuntimeError("未配置 NOUS_KEY / NOUS_URL")
+        return ep
     if force == "peak":
         ep = peak_endpoint()
         if ep is None:
-            raise RuntimeError("未配置 LLM_PEAK_API_KEY / LLM_PEAK_BASE_URL")
+            raise RuntimeError("未配置 LLM_PEAK_BASE_URL")
         return ep
     # overlays 默认强制本地；否则高峰优先本地
     if overlays_local_only() or is_peak_hour():
         ep = peak_endpoint()
         if ep is not None:
             return ep
+        nous = nous_endpoint()
+        if nous is not None:
+            return nous
         if overlays_local_only():
             raise RuntimeError(
-                "LLM_OVERLAYS_LOCAL_ONLY=1 但未配置 LLM_PEAK_API_KEY / LLM_PEAK_BASE_URL")
+                "LLM_OVERLAYS_LOCAL_ONLY=1 但未配置 LLM_PEAK_BASE_URL 或 NOUS_KEY")
     return offpeak_endpoint()
+
+
+def _chat_candidates(primary: LLMEndpoint, force: str | None) -> list[LLMEndpoint]:
+    """按路由策略生成尝试顺序（去重）。"""
+    if force == "offpeak":
+        return [primary]
+    if force == "nous":
+        return [primary]
+
+    out: list[LLMEndpoint] = [primary]
+    seen = {primary.label}
+
+    def _add(ep: LLMEndpoint | None) -> None:
+        if ep is not None and ep.label not in seen:
+            out.append(ep)
+            seen.add(ep.label)
+
+    if force == "peak" or primary.label == "peak":
+        _add(nous_endpoint())
+    if force is None and not overlays_local_only():
+        _add(offpeak_endpoint())
+    return out
 
 
 def default_overlay_force() -> str | None:
@@ -233,6 +287,9 @@ def _chat_openai(ep: LLMEndpoint, messages: list[dict[str, str]], *,
             "enable_thinking": False,
             "think": False,
         }
+    elif ep.label == "nous":
+        # Nous Portal 免费模型（:free）要求 extra_body.tags
+        kwargs["extra_body"] = {"tags": _nous_portal_tags()}
     resp = client.chat.completions.create(**kwargs)
     text = _extract_text(resp.choices[0].message)
     if not text:
@@ -259,9 +316,10 @@ def chat(messages: list[dict[str, str]], *,
          timeout: float | None = None) -> tuple[str, dict[str, Any]]:
     """调用 LLM。返回 (text, meta)。
 
-    - force='peak' / local-only：只用自部署，不回落 DeepSeek
-    - force='offpeak'：只用云端
-    - force=None 且未开 local-only：高峰本地失败可回落闲时
+    - force='peak' / local-only：自部署 → Nous，不回落 DeepSeek
+    - force='nous'：只用 Nous
+    - force='offpeak'：只用闲时云端
+    - force=None 且未开 local-only：高峰本地 → Nous → 闲时
     """
     tried: list[str] = []
     errors: list[str] = []
@@ -269,14 +327,7 @@ def chat(messages: list[dict[str, str]], *,
     if route is None and overlays_local_only():
         route = "peak"
     primary = resolve_endpoint(route)
-    candidates = [primary]
-    allow_fallback = (
-        primary.is_peak
-        and force is None
-        and not overlays_local_only()
-    )
-    if allow_fallback:
-        candidates.append(offpeak_endpoint())
+    candidates = _chat_candidates(primary, force)
 
     last_err: Exception | None = None
     for ep in candidates:
@@ -287,7 +338,7 @@ def chat(messages: list[dict[str, str]], *,
         elif ep.backend == "ollama":
             ep_max = 2048
         elif ep.is_peak:
-            ep_max = 8192
+            ep_max = 24576
         else:
             ep_max = 4096
         ep_timeout = timeout if timeout is not None else (180.0 if ep.is_peak else 90.0)

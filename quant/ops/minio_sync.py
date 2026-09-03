@@ -1,8 +1,7 @@
 """MinIO 数据同步：origin 服务器只上传；client 本地启动时拉取。
 
-同步内容：
-  1. Qlib 行情包 datasets/qlib_data/cn_data（打包为 qlib/cn_data.tar.gz）
-  2. quant/data/ 运行时目录（signals、accounts、overlays 等，不含 logs）
+默认同步内容：quant/data/（signals、accounts、overlays 等，不含 logs）。
+Qlib 行情包（datasets/qlib_data/cn_data）体积大，默认不上传；需时显式 --qlib。
 
 配置：configs/global.yaml 的 minio 段 + configs/secret.env 凭证。
   role=origin（默认，生产服务器）：只 push，启动/ensure_qlib 不 pull
@@ -10,9 +9,10 @@
 
 用法：
     python quant/ops/minio_sync.py status
-    python quant/ops/minio_sync.py pull          # 仅 client；origin 默认跳过
-    python quant/ops/minio_sync.py pull --force  # origin 上紧急拉取
-    python quant/ops/minio_sync.py push          # 上传本地数据到 MinIO
+    python quant/ops/minio_sync.py pull              # 仅 client；origin 默认跳过
+    python quant/ops/minio_sync.py pull --force      # origin 上紧急拉取
+    python quant/ops/minio_sync.py push              # 只上传 quant/data
+    python quant/ops/minio_sync.py push --qlib       # 额外上传 qlib 行情包
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -336,15 +337,15 @@ def pull_quant_data(*, force: bool = False) -> dict[str, Any]:
     return {"ok": True, "action": "pulled", "files": downloaded}
 
 
-def push_quant_data() -> dict[str, Any]:
-    """上传 quant/data 子目录到 MinIO。"""
+def push_quant_data(*, workers: int = 16) -> dict[str, Any]:
+    """上传 quant/data 子目录到 MinIO（不含 qlib）。"""
     client, s = _client()
     bucket = s["bucket"]
     prefix = s["quant_prefix"]
     paths = s["quant_paths"]
     _ensure_bucket(client, bucket)
-    uploaded = 0
 
+    jobs: list[tuple[str, str]] = []
     for sub in paths:
         local_base = DATA_ROOT / sub
         if not local_base.exists():
@@ -353,14 +354,29 @@ def push_quant_data() -> dict[str, Any]:
             if not fp.is_file():
                 continue
             rel = fp.relative_to(DATA_ROOT)
-            key = _remote_key(prefix, rel)
-            client.fput_object(bucket, key, str(fp))
+            jobs.append((_remote_key(prefix, rel), str(fp)))
+
+    total = len(jobs)
+    print(f"[minio] 开始上传 quant/data：{total} 个文件（workers={workers}，不含 qlib）", flush=True)
+
+    def _put(item: tuple[str, str]) -> None:
+        key, path = item
+        c, _ = _client()
+        c.fput_object(bucket, key, path)
+
+    uploaded = 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(_put, job) for job in jobs]
+        for fut in as_completed(futures):
+            fut.result()
             uploaded += 1
+            if uploaded % 50 == 0 or uploaded == total:
+                print(f"[minio] quant/data 上传中… {uploaded}/{total}", flush=True)
 
     manifest = read_manifest(client, bucket) or {"version": 1}
     manifest["quant_data"] = {"updated_at": _now_iso(), "prefix": prefix}
     write_manifest(client, bucket, manifest)
-    print(f"[minio] quant/data 已上传 {uploaded} 个文件")
+    print(f"[minio] quant/data 已上传 {uploaded} 个文件（不含 qlib）", flush=True)
     return {"ok": True, "action": "pushed", "files": uploaded}
 
 
@@ -420,8 +436,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="MinIO 数据同步")
     ap.add_argument("action", choices=["status", "pull", "push"])
     ap.add_argument("--force", action="store_true", help="忽略版本检查强制拉取")
-    ap.add_argument("--qlib-only", action="store_true")
-    ap.add_argument("--data-only", action="store_true")
+    ap.add_argument("--qlib", action="store_true",
+                    help="push 时额外上传 qlib；pull 时含 qlib（等同旧 --qlib-only 的反向组合）")
+    ap.add_argument("--qlib-only", action="store_true", help="只处理 qlib 行情包")
+    ap.add_argument("--data-only", action="store_true",
+                    help="只处理 quant/data（push 默认已是 data-only，保留兼容）")
     args = ap.parse_args()
 
     if args.action == "status":
@@ -441,10 +460,15 @@ def main() -> int:
             else:
                 r = sync_on_startup(force=args.force)
         else:
+            # push 默认只上传 quant/data；qlib 需 --qlib / --qlib-only
             parts = {}
-            if not args.data_only:
+            do_qlib = args.qlib or args.qlib_only
+            do_data = (not args.qlib_only) or args.data_only
+            if args.qlib_only:
+                do_data = False
+            if do_qlib:
                 parts["qlib"] = push_qlib()
-            if not args.qlib_only:
+            if do_data:
                 parts["quant_data"] = push_quant_data()
             r = {"ok": True, "parts": parts}
         print(json.dumps(r, ensure_ascii=False, indent=2))

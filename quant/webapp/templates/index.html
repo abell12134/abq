@@ -26,6 +26,7 @@
     <button class="tab" data-tab="shadow_ta_sim">TA影子线</button>
     <button class="tab" data-tab="compare">四线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
+    <button class="tab" data-tab="board">大盘看板</button>
     <button class="tab" data-tab="sentiment">舆情跟踪</button>
     <button class="tab" data-tab="swing">短线猎手</button>
     <button class="tab" data-tab="research">研究分析</button>
@@ -37,8 +38,13 @@
     <section id="overview" class="panel active">
       <div id="indices" class="cards indices-strip"></div>
       <div id="cards" class="cards"></div>
-      <div class="chart-box"><h2>累计收益对比（%）</h2><canvas id="ovChart"></canvas></div>
-      <p class="panel-desc">涨跌色口径：红涨绿跌（与 K 线一致）</p>
+      <div class="chart-box">
+        <h2>四线累计收益</h2>
+        <p class="chart-sub">按交易日并集对齐 · %</p>
+        <div class="chart-frame"><canvas id="ovChart"></canvas></div>
+        <p class="chart-src">CUM RETURN · RESEARCH BENCH</p>
+      </div>
+      <p class="panel-desc">卡片数字：红涨绿跌。折线：实盘橙 / 研究白 / 灰阶影子，不用涨跌色。</p>
     </section>
 
     <!-- 账户页（模板，JS 克隆填充） -->
@@ -50,10 +56,30 @@
     <!-- 四线对比：研究 / 实盘 / 对照 / TA -->
     <section id="compare" class="panel">
       <div id="cmp-summary"></div>
-      <div class="chart-box"><h2>累计收益对比（%）</h2><canvas id="cmpChart"></canvas></div>
-      <div class="chart-box"><h2>累计超额对比（%）</h2><canvas id="cmpExcessChart"></canvas></div>
-      <div class="chart-box"><h2>共同交易日 日收益差（实盘−研究, %）</h2><canvas id="cmpGapChart"></canvas></div>
-      <div class="chart-box"><h2>共同交易日 超额差（TA−对照, %）</h2><canvas id="cmpTaGapChart"></canvas></div>
+      <div class="chart-box">
+        <h2>四线累计收益</h2>
+        <p class="chart-sub">按交易日并集对齐 · %</p>
+        <div class="chart-frame"><canvas id="cmpChart"></canvas></div>
+        <p class="chart-src">CUM RETURN</p>
+      </div>
+      <div class="chart-box">
+        <h2>累计超额</h2>
+        <p class="chart-sub">相对基准 · %</p>
+        <div class="chart-frame"><canvas id="cmpExcessChart"></canvas></div>
+        <p class="chart-src">CUM EXCESS</p>
+      </div>
+      <div class="chart-box">
+        <h2>日收益差（实盘−研究）</h2>
+        <p class="chart-sub">共同交易日 · 正=实盘当日更好</p>
+        <div class="chart-frame"><canvas id="cmpGapChart"></canvas></div>
+        <p class="chart-src">LIVE − RESEARCH · %</p>
+      </div>
+      <div class="chart-box">
+        <h2>超额差（TA−对照）</h2>
+        <p class="chart-sub">共同交易日 · 正=TA 当日超额更好</p>
+        <div class="chart-frame"><canvas id="cmpTaGapChart"></canvas></div>
+        <p class="chart-src">TA − CONTROL · %</p>
+      </div>
       <h2>成交偏差（实盘相对研究线，正=更差）</h2>
       <div id="cmp-fills" class="table-wrap"></div>
     </section>
@@ -62,6 +88,148 @@
     <section id="daily-ops" class="panel">
       <p class="panel-desc">各账户最新调仓清单：订单日对应次日执行；模拟账户由 postclose 自动成交，人工账户需回填。</p>
       <div id="daily-ops-list"></div>
+    </section>
+
+    <!-- 大盘看板（池内统计，只读） -->
+    <section id="board" class="panel">
+      <div class="board-toolbar">
+        <div class="board-subtabs" id="board-subtabs">
+          <button class="subtab active" data-sub="panorama">全景</button>
+          <button class="subtab" data-sub="limit">涨停复盘</button>
+          <button class="subtab" data-sub="ladder">连板梯队</button>
+          <button class="subtab" data-sub="theme">题材轮动</button>
+          <button class="subtab" data-sub="strong">强势资金</button>
+          <button class="subtab" data-sub="news">快讯</button>
+        </div>
+        <div class="board-status">
+          <select id="board-day" class="board-day-select"></select>
+          <span id="board-meta" class="muted">-</span>
+          <button id="board-refresh" class="mini-btn">刷新行情</button>
+          <button id="board-run" class="mini-btn">生成快照</button>
+        </div>
+      </div>
+      <div id="board-job" class="muted"></div>
+      <div id="board-intraday-badge" class="board-intraday-badge hidden"></div>
+
+      <!-- 子页：全景 -->
+      <div id="board-panorama" class="board-sub active">
+        <div class="glance-hero">
+          <div class="glance-hero-main board-card" id="board-thermo"></div>
+          <div class="glance-hero-side board-card" id="board-index-env"></div>
+        </div>
+        <div class="board-grid-2">
+          <div class="chart-box">
+            <h2>情绪周期</h2>
+            <p class="chart-sub">近15日 · 温度与涨跌停</p>
+            <div class="chart-frame"><canvas id="boardEmotionChart"></canvas></div>
+            <div id="board-emotion-label" class="board-label"></div>
+            <p class="chart-src">POOL · 15D</p>
+          </div>
+          <div class="chart-box">
+            <h2>30日行情周期</h2>
+            <p class="chart-sub">池内等权净值 · 相对窗口起点</p>
+            <div class="chart-frame"><canvas id="boardPeriodChart"></canvas></div>
+            <div id="board-period-label" class="board-label"></div>
+            <p class="chart-src">POOL EQUAL WEIGHT · 30D</p>
+          </div>
+        </div>
+        <div class="board-grid-2">
+          <div class="board-card">
+            <h2>涨榜</h2>
+            <p class="chart-sub">池内 TOP20</p>
+            <div id="board-gainers" class="table-wrap"></div>
+          </div>
+          <div class="board-card">
+            <h2>跌榜</h2>
+            <p class="chart-sub">池内 TOP20</p>
+            <div id="board-losers" class="table-wrap"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 子页：涨停复盘（封单散点图 + 点击评分卡） -->
+      <div id="board-limit" class="board-sub">
+        <div class="chart-box chart-box-tall">
+          <h2>封单强度</h2>
+          <p class="chart-sub" id="board-scatter-sub">x=封单额/流通市值% · y=连板数 · 面积=√成交额 · 点击气泡看评分卡</p>
+          <span id="board-scatter-mode" class="hidden"></span>
+          <div class="chart-frame chart-frame-tall"><canvas id="boardScatterChart"></canvas></div>
+          <p class="chart-src">LIMIT-UP SCATTER</p>
+        </div>
+        <div class="board-grid-2">
+          <div class="board-card"><h2>涨停预警（逼近涨停未封板）</h2><div id="board-warn" class="table-wrap"></div></div>
+          <div class="board-card"><h2>涨停明细（池内）</h2><div id="board-limit-detail" class="table-wrap"></div></div>
+        </div>
+      </div>
+
+      <!-- 评分卡抽屉 -->
+      <div id="board-drawer-mask" class="board-drawer-mask hidden"></div>
+      <div id="board-drawer" class="board-drawer hidden">
+        <div class="board-drawer-head">
+          <span id="board-drawer-title">-</span>
+          <button id="board-drawer-close" class="mini-btn">关闭</button>
+        </div>
+        <div id="board-drawer-body"></div>
+      </div>
+
+      <!-- 子页：连板梯队 -->
+      <div id="board-ladder" class="board-sub">
+        <div class="board-grid-2">
+          <div class="board-card"><h2>连板梯队</h2><div id="board-tiers"></div></div>
+          <div>
+            <div class="board-card"><h2>梯队存活率（晋级率）</h2><div id="board-survival" class="table-wrap"></div></div>
+            <div class="board-card"><h2>涨停行业分布</h2><div id="board-industry" class="table-wrap"></div></div>
+          </div>
+        </div>
+        <div class="board-card"><h2>首板名单</h2><div id="board-first" class="table-wrap"></div></div>
+      </div>
+
+      <!-- 子页：题材轮动 -->
+      <div id="board-theme" class="board-sub">
+        <div class="board-grid-2">
+          <div class="board-card"><h2>题材热度榜（概念，含池内命中）</h2>
+            <div id="board-concepts" class="table-wrap"></div></div>
+          <div class="board-card"><h2>行业榜（全市场申万口径）</h2>
+            <div id="board-ind-list" class="table-wrap"></div></div>
+        </div>
+        <div class="board-card">
+          <h2>板块轮动矩阵（池内行业 × 近5/10/20日涨幅%）</h2>
+          <p class="panel-desc">红涨绿跌；「流入↑」= 近5日强而20日弱（新资金切入），「流出↓」反之</p>
+          <div id="board-rotation" class="table-wrap"></div>
+        </div>
+      </div>
+
+      <!-- 子页：强势资金 -->
+      <div id="board-strong" class="board-sub">
+        <div class="board-card">
+          <h2>强势个股榜</h2>
+          <p id="board-strong-caliber" class="muted"></p>
+          <div id="board-strong-list" class="table-wrap"></div>
+        </div>
+        <div class="board-grid-2">
+          <div class="board-card"><h2>主力净流入 TOP（池内）</h2>
+            <div id="board-inflow" class="table-wrap"></div></div>
+          <div class="board-card"><h2>主力净流出 TOP（池内避雷）</h2>
+            <div id="board-outflow" class="table-wrap"></div></div>
+        </div>
+      </div>
+
+      <!-- 子页：快讯 -->
+      <div id="board-news" class="board-sub">
+        <div class="board-card">
+          <h2>快讯流 <span id="board-news-stats" class="muted"></span></h2>
+          <div class="news-filter">
+            <button class="mini-btn news-filter-btn active" data-nf="all">全部</button>
+            <button class="mini-btn news-filter-btn" data-nf="hits">仅池内相关</button>
+            <button class="mini-btn news-filter-btn" data-nf="policy">政策宏观</button>
+          </div>
+          <div id="board-news-feed"></div>
+        </div>
+        <div class="board-card">
+          <h2>池内个股动态（公告/新闻直挂）</h2>
+          <div id="board-pool-feed" class="table-wrap"></div>
+        </div>
+      </div>
     </section>
 
     <!-- 舆情跟踪 -->
@@ -146,11 +314,10 @@
             <div id="sent-tags" class="sent-tags"></div>
 
             <div class="chart-box sent-chart-box">
-              <div class="sent-sec-head">
-                <h3>近 90 天走势</h3>
-                <span id="sent-price-cap" class="sent-cap">日线 · 窗口累计收益（起点归零）</span>
-              </div>
-              <canvas id="sentPriceChart"></canvas>
+              <h2>近 90 天走势</h2>
+              <p class="chart-sub" id="sent-price-cap">日线 · 窗口累计收益（起点归零）</p>
+              <div class="chart-frame chart-frame-sent"><canvas id="sentPriceChart"></canvas></div>
+              <p class="chart-src">DAILY CLOSE · CUM %</p>
             </div>
 
             <div class="sent-grid">
@@ -195,7 +362,10 @@
                   <span class="sent-cap">分数区间 −1 ~ 1</span>
                 </div>
                 <div class="chart-box sent-hist-chart">
-                  <canvas id="sentHistChart" height="140"></canvas>
+                  <h2>情绪轨迹</h2>
+                  <p class="chart-sub">分数 −1 ~ 1</p>
+                  <div class="chart-frame chart-frame-hist"><canvas id="sentHistChart"></canvas></div>
+                  <p class="chart-src">SENTIMENT SCORE</p>
                 </div>
                 <div id="sent-hist" class="table-wrap embedded"></div>
               </div>
@@ -407,16 +577,41 @@
   <template id="account-tpl">
     <div class="acct-cards cards"></div>
     <div class="chart-grid">
-      <div class="chart-box"><h2>净值</h2><canvas class="navChart"></canvas></div>
-      <div class="chart-box"><h2>累计收益 vs 基准（%）</h2><canvas class="retChart"></canvas></div>
+      <div class="chart-box">
+        <h2>净值</h2>
+        <p class="chart-sub">日频 · 元</p>
+        <div class="chart-frame"><canvas class="navChart"></canvas></div>
+        <p class="chart-src">NAV · DAILY</p>
+      </div>
+      <div class="chart-box">
+        <h2>累计收益 vs 基准</h2>
+        <p class="chart-sub">累计 · 超额 · 基准</p>
+        <div class="chart-frame"><canvas class="retChart"></canvas></div>
+        <p class="chart-src">CUM RETURN VS BENCH</p>
+      </div>
     </div>
     <div class="chart-grid">
-      <div class="chart-box"><h2>持仓数 / 换手(%)</h2><canvas class="posChart"></canvas></div>
-      <div class="chart-box"><h2>现金 vs 持仓市值</h2><canvas class="cashChart"></canvas></div>
+      <div class="chart-box">
+        <h2>持仓只数与换手</h2>
+        <p class="chart-sub">持仓数 · 换手%</p>
+        <div class="chart-frame"><canvas class="posChart"></canvas></div>
+        <p class="chart-src">POSITION COUNT · TURNOVER</p>
+      </div>
+      <div class="chart-box">
+        <h2>现金 vs 持仓市值</h2>
+        <p class="chart-sub">堆叠 · 元</p>
+        <div class="chart-frame"><canvas class="cashChart"></canvas></div>
+        <p class="chart-src">CASH + POSITION VALUE</p>
+      </div>
     </div>
     <h2>操作个股 · 每日收盘（近一月）</h2>
     <p class="panel-desc">收盘后由本地数据记录，非实时。含当前持仓与近一月买卖过的标的。</p>
-    <div class="chart-box"><h2>各股累计涨幅（%，窗口起点归零）</h2><canvas class="posDailyChart"></canvas></div>
+    <div class="chart-box">
+      <h2>各股累计涨幅</h2>
+      <p class="chart-sub">窗口起点归零 · %</p>
+      <div class="chart-frame"><canvas class="posDailyChart"></canvas></div>
+      <p class="chart-src">POSITION DAILY · LOCAL CLOSE</p>
+    </div>
     <div class="pos-daily table-wrap"></div>
     <h2>当前持仓</h2>
     <div class="holdings table-wrap"></div>
@@ -435,8 +630,18 @@
         <button id="sm-close">✕</button>
       </div>
       <div id="sm-meta" class="sm-meta"></div>
-      <div class="chart-box"><h2>K线（红涨绿跌）</h2><canvas id="smK"></canvas></div>
-      <div class="chart-box"><h2>成交量</h2><canvas id="smVol"></canvas></div>
+      <div class="chart-box">
+        <h2>日K</h2>
+        <p class="chart-sub">红涨绿跌 · 空心涨 / 实心跌</p>
+        <div class="chart-frame"><canvas id="smK"></canvas></div>
+        <p class="chart-src">OHLC</p>
+      </div>
+      <div class="chart-box">
+        <h2>成交量</h2>
+        <p class="chart-sub">柱色跟随当日涨跌</p>
+        <div class="chart-frame chart-frame-vol"><canvas id="smVol"></canvas></div>
+        <p class="chart-src">VOLUME</p>
+      </div>
       <div class="sm-controls">
         <span>周期：</span>
         <button class="klt-btn active" data-klt="101">日</button>

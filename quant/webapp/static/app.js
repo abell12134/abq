@@ -71,16 +71,31 @@ function fmtDur(sec) {
 }
 
 function mkChart(canvas, cfg) {
+  if (!canvas) return;
   const key = canvas.id || canvas.dataset.k;
   if (charts[key]) charts[key].destroy();
   charts[key] = new Chart(canvas, cfg);
 }
 
-// 暗色分类色：略降 lightness，避免暗底上过跳；账户色互不撞色。
+/* Glance · 暗底 Wire：灰阶承载结构，红/绿只编码涨跌，橙只给一个主角。 */
+const GLANCE = {
+  ink: "#ebe8e0",
+  muted: "#8f8e88",
+  faint: "#6a6963",
+  grid: "rgba(235,232,224,0.08)",
+  hero: "#f5572f",
+  paper: "#12110f",
+  font: 'Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, sans-serif',
+};
 const COLORS = {
-  research: "#3b82d6", live: "#c08b1a", bench: "#8b98a9",
-  green: "#2ea043", red: "#e5534b",
-  shadow_ctrl: "#8b5cf6", shadow_ta: "#2a9d8f",
+  research: GLANCE.ink,
+  live: GLANCE.hero,
+  bench: GLANCE.faint,
+  green: "#2ea043",
+  red: "#e5534b",
+  shadow_ctrl: "#b0afa9",
+  shadow_ta: "#8f8e88",
+  amber: "#d4a017",
 };
 const ACCOUNT_COLORS = {
   research_sim_100k: COLORS.research,
@@ -88,16 +103,177 @@ const ACCOUNT_COLORS = {
   shadow_ctrl_sim: COLORS.shadow_ctrl,
   shadow_ta_sim: COLORS.shadow_ta,
 };
-const lineDS = (label, data, color, fill = false) => ({
-  label, data, borderColor: color, backgroundColor: color + "33",
-  borderWidth: 2, pointRadius: 0, tension: 0, fill,
+const ACCOUNT_LEGEND = "实盘橙 · 研究白 · 对照浅灰 · TA 中灰 · 基准虚线";
+
+function hexAlpha(color, a) {
+  if (!color || color[0] !== "#" || color.length < 7) return color;
+  const n = Math.round(Math.min(1, Math.max(0, a)) * 255);
+  return color.slice(0, 7) + n.toString(16).padStart(2, "0");
+}
+
+const lineDS = (label, data, color, fill = false, extra = {}) => ({
+  label,
+  data,
+  borderColor: color,
+  backgroundColor: fill ? hexAlpha(color, 0.14) : "transparent",
+  borderWidth: extra.borderWidth ?? (fill ? 2.4 : 2.2),
+  pointRadius: 0,
+  pointHoverRadius: 4,
+  pointHitRadius: 10,
+  tension: 0,
+  fill,
+  borderDash: extra.dash || [],
 });
-const baseOpts = {
-  responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
-  plugins: { legend: { labels: { color: "#8b98a9", boxWidth: 12 } } },
-  scales: { x: { ticks: { color: "#8b98a9", maxTicksLimit: 8 }, grid: { color: "#2a344133" } },
-            y: { ticks: { color: "#8b98a9" }, grid: { color: "#2a344133" } } },
+
+function barDS(label, data, { signed = false, color = GLANCE.ink } = {}) {
+  const n = (data || []).length;
+  const fat = n <= 14;
+  return {
+    label,
+    data,
+    backgroundColor: signed
+      ? data.map(v => (v >= 0 ? COLORS.red : COLORS.green))
+      : color,
+    borderRadius: signed || fat ? 99 : 3,
+    borderSkipped: false,
+    barPercentage: fat ? 0.52 : 0.78,
+    categoryPercentage: 0.86,
+  };
+}
+
+function lastNonNull(arr) {
+  if (!arr) return null;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const v = arr[i];
+    if (v != null && v !== "" && !Number.isNaN(Number(v))) return Number(v);
+  }
+  return null;
+}
+
+function setChartCopy(canvas, { title, sub, src } = {}) {
+  const el = typeof canvas === "string" ? document.getElementById(canvas) : canvas;
+  const box = el?.closest?.(".chart-box");
+  if (!box) return;
+  const h = box.querySelector("h2, h3");
+  const subEl = box.querySelector(".chart-sub");
+  const srcEl = box.querySelector(".chart-src");
+  if (title && h) h.textContent = title;
+  if (sub != null && subEl) subEl.textContent = sub;
+  if (src != null && srcEl) srcEl.textContent = src;
+}
+
+const tickFont = { size: 9.5, weight: 600, family: GLANCE.font };
+const glanceScales = {
+  x: {
+    grid: { display: false },
+    border: { display: false },
+    ticks: { color: GLANCE.muted, maxTicksLimit: 7, padding: 6, font: tickFont },
+  },
+  y: {
+    grid: { color: GLANCE.grid, lineWidth: 1 },
+    border: { display: false },
+    ticks: { color: GLANCE.muted, maxTicksLimit: 5, padding: 8, font: tickFont },
+  },
 };
+const baseOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: "index", intersect: false },
+  animation: { duration: 800, easing: "easeOutQuart" },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: GLANCE.ink,
+      titleColor: GLANCE.paper,
+      bodyColor: "#5c5b56",
+      padding: 12,
+      cornerRadius: 12,
+      displayColors: false,
+      titleFont: { family: GLANCE.font, weight: 700, size: 12 },
+      bodyFont: { family: GLANCE.font, size: 12 },
+    },
+    glanceLastValue: true,
+  },
+  scales: glanceScales,
+};
+
+function withLegend(opts = baseOpts) {
+  return {
+    ...opts,
+    plugins: {
+      ...opts.plugins,
+      legend: {
+        display: true,
+        position: "top",
+        align: "start",
+        labels: {
+          color: GLANCE.muted,
+          boxWidth: 12,
+          boxHeight: 3,
+          padding: 14,
+          font: { size: 11, weight: 600, family: GLANCE.font },
+        },
+      },
+      glanceLastValue: false,
+    },
+  };
+}
+
+const glanceLastValue = {
+  id: "glanceLastValue",
+  afterDatasetsDraw(chart) {
+    if (chart.options.plugins?.glanceLastValue === false) return;
+    const type = chart.config.type;
+    if (type === "bar" || type === "bubble" || type === "scatter") return;
+    const visible = chart.data.datasets.filter((_, i) => chart.isDatasetVisible(i));
+    if (visible.length !== 1) return;
+    const ds = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!meta?.data) return;
+    let pt = null, val = null;
+    for (let i = ds.data.length - 1; i >= 0; i--) {
+      if (ds.data[i] != null && meta.data[i]) { pt = meta.data[i]; val = ds.data[i]; break; }
+    }
+    if (!pt || val == null || typeof val !== "number") return;
+    const ctx = chart.ctx;
+    const label = Math.abs(val) >= 100 ? val.toFixed(0) : (Math.abs(val) >= 10 ? val.toFixed(1) : val.toFixed(2));
+    ctx.save();
+    ctx.font = `700 11px ${GLANCE.font}`;
+    ctx.fillStyle = typeof ds.borderColor === "string" ? ds.borderColor : GLANCE.ink;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const w = ctx.measureText(label).width;
+    const x = Math.min(pt.x + 8, chart.chartArea.right - w - 2);
+    ctx.fillText(label, x, pt.y);
+    ctx.restore();
+  },
+};
+
+(function applyGlanceDefaults() {
+  if (typeof Chart === "undefined") return;
+  Chart.register(glanceLastValue);
+  Chart.defaults.color = GLANCE.muted;
+  Chart.defaults.font.family = GLANCE.font;
+  Chart.defaults.font.size = 10.5;
+  Chart.defaults.borderColor = GLANCE.grid;
+  Chart.defaults.elements.line.borderWidth = 2.2;
+  Chart.defaults.elements.line.tension = 0;
+  Chart.defaults.elements.point.radius = 0;
+  Chart.defaults.elements.point.hoverRadius = 4;
+  Chart.defaults.plugins.legend.display = false;
+  Chart.defaults.plugins.tooltip.backgroundColor = GLANCE.ink;
+  Chart.defaults.plugins.tooltip.titleColor = GLANCE.paper;
+  Chart.defaults.plugins.tooltip.bodyColor = "#5c5b56";
+  Chart.defaults.plugins.tooltip.padding = 12;
+  Chart.defaults.plugins.tooltip.cornerRadius = 12;
+  Chart.defaults.plugins.tooltip.displayColors = false;
+  Chart.defaults.animation.duration = 800;
+  Chart.defaults.animation.easing = "easeOutQuart";
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    Chart.defaults.animation = false;
+    baseOpts.animation = false;
+  }
+})();
 
 let fullAccess = false;
 
@@ -186,9 +362,27 @@ async function loadOverview() {
   });
   // 基准仍取研究线（与历史口径一致）
   if (series[0].dates.length) {
-    ds.push(lineDS("基准", alignBy(series[0].dates, series[0].series.cum_bench), COLORS.bench));
+    ds.push(lineDS("基准", alignBy(series[0].dates, series[0].series.cum_bench), COLORS.bench, false, { dash: [5, 4], borderWidth: 1.4 }));
   }
-  mkChart(document.getElementById("ovChart"), { type: "line", data: { labels, datasets: ds }, options: { ...baseOpts, spanGaps: true } });
+  const liveLast = lastNonNull(ds.find(d => d.label === "实盘线")?.data);
+  const resLast = lastNonNull(ds.find(d => d.label === "研究模拟线")?.data);
+  let ovTitle = "四线累计收益";
+  if (liveLast != null && resLast != null) {
+    const gap = liveLast - resLast;
+    ovTitle = gap >= 0
+      ? `实盘领先研究 ${pct(gap)}`
+      : `实盘落后研究 ${pct(gap)}`;
+  }
+  setChartCopy("ovChart", {
+    title: ovTitle,
+    sub: ACCOUNT_LEGEND,
+    src: "CUM RETURN · UNION OF TRADE DAYS · %",
+  });
+  mkChart(document.getElementById("ovChart"), {
+    type: "line",
+    data: { labels, datasets: ds },
+    options: { ...withLegend(baseOpts), spanGaps: true },
+  });
 }
 
 function card(label, value, sub, valueCls = "") {
@@ -300,10 +494,65 @@ async function loadAccount(account) {
 
   if (daily.dates.length) {
     const L = daily.dates, s = daily.series;
-    mkChartC(panel, ".navChart", "nav_" + account, { type: "line", data: { labels: L, datasets: [lineDS("净值", s.nav, COLORS.research, true)] }, options: baseOpts });
-    mkChartC(panel, ".retChart", "ret_" + account, { type: "line", data: { labels: L, datasets: [lineDS("累计收益", s.cum_ret, COLORS.green), lineDS("基准", s.cum_bench, COLORS.bench), lineDS("超额", s.cum_excess, COLORS.live)] }, options: baseOpts });
-    mkChartC(panel, ".posChart", "pos_" + account, { type: "line", data: { labels: L, datasets: [lineDS("持仓数", s.n_pos, COLORS.research), lineDS("换手%", s.turnover, COLORS.live)] }, options: baseOpts });
-    mkChartC(panel, ".cashChart", "cash_" + account, { type: "line", data: { labels: L, datasets: [lineDS("现金", s.cash, COLORS.bench, true), lineDS("持仓市值", s.position_value, COLORS.research, true)] }, options: { ...baseOpts, scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, stacked: true } } } });
+    const navLast = lastNonNull(s.nav);
+    const retLast = lastNonNull(s.cum_ret);
+    const exLast = lastNonNull(s.cum_excess);
+    setChartCopy(panel.querySelector(".navChart"), {
+      title: navLast != null ? `净值 ${fmt(navLast)}` : "净值",
+      sub: `${L[0] || ""} → ${L[L.length - 1] || ""} · 元`,
+      src: "NAV · DAILY",
+    });
+    setChartCopy(panel.querySelector(".retChart"), {
+      title: retLast != null ? `累计 ${pct(retLast)} · 超额 ${pct(exLast || 0)}` : "累计收益",
+      sub: "累计白 · 超额橙 · 基准虚线 · 小数",
+      src: "CUM RETURN VS BENCH",
+    });
+    setChartCopy(panel.querySelector(".posChart"), {
+      title: "持仓只数与换手",
+      sub: "持仓白 · 换手橙 · %",
+      src: "POSITION COUNT · TURNOVER",
+    });
+    setChartCopy(panel.querySelector(".cashChart"), {
+      title: "现金 vs 持仓市值",
+      sub: "堆叠面积 · 元",
+      src: "CASH + POSITION VALUE",
+    });
+    mkChartC(panel, ".navChart", "nav_" + account, {
+      type: "line",
+      data: { labels: L, datasets: [lineDS("净值", s.nav, GLANCE.ink, true)] },
+      options: baseOpts,
+    });
+    mkChartC(panel, ".retChart", "ret_" + account, {
+      type: "line",
+      data: {
+        labels: L,
+        datasets: [
+          lineDS("累计收益", s.cum_ret, GLANCE.ink),
+          lineDS("基准", s.cum_bench, COLORS.bench, false, { dash: [5, 4], borderWidth: 1.4 }),
+          lineDS("超额", s.cum_excess, GLANCE.hero),
+        ],
+      },
+      options: withLegend(baseOpts),
+    });
+    mkChartC(panel, ".posChart", "pos_" + account, {
+      type: "line",
+      data: { labels: L, datasets: [lineDS("持仓数", s.n_pos, GLANCE.ink), lineDS("换手%", s.turnover, GLANCE.hero)] },
+      options: withLegend(baseOpts),
+    });
+    mkChartC(panel, ".cashChart", "cash_" + account, {
+      type: "line",
+      data: {
+        labels: L,
+        datasets: [
+          lineDS("现金", s.cash, GLANCE.faint, true),
+          lineDS("持仓市值", s.position_value, GLANCE.ink, true),
+        ],
+      },
+      options: {
+        ...withLegend(baseOpts),
+        scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, stacked: true } },
+      },
+    });
   }
 
   // 个股每日收盘独立加载：即使失败也不影响本页其它模块
@@ -330,8 +579,10 @@ async function loadAccount(account) {
 }
 
 // 个股每日收盘（近一月）：累计涨幅多线图 + 汇总表
-const POS_LINE_COLORS = ["#3b82d6", "#c08b1a", "#2ea043", "#8b5cf6", "#e5534b", "#2a9d8f",
-  "#56d4dd", "#e3b341", "#db61a2", "#8b98a9", "#2ea043", "#f0883e", "#6cb6ff"];
+const POS_LINE_COLORS = [
+  GLANCE.ink, GLANCE.hero, "#c6c5bf", "#8f8e88", "#d4a574",
+  "#9aa4b2", "#b0afa9", "#7a9e8a", "#a89b8c", "#6a6963",
+];
 
 function renderPosDaily(panel, chartKey, data) {
   const box = panel.querySelector(".pos-daily");
@@ -345,8 +596,16 @@ function renderPosDaily(panel, chartKey, data) {
   const ds = data.instruments.map((it, i) => lineDS(
     it.instrument, it.cum, POS_LINE_COLORS[i % POS_LINE_COLORS.length]));
   canvas.dataset.k = chartKey;
-  mkChart(canvas, { type: "line", data: { labels: L, datasets: ds },
-    options: { ...baseOpts, spanGaps: true } });
+  setChartCopy(canvas, {
+    title: `近一月各股累计涨幅 · ${data.instruments.length} 只`,
+    sub: "窗口起点归零 · % · 持仓与近一月买卖过的标的",
+    src: "POSITION DAILY · LOCAL CLOSE",
+  });
+  mkChart(canvas, {
+    type: "line",
+    data: { labels: L, datasets: ds },
+    options: { ...withLegend({ ...baseOpts, plugins: { ...baseOpts.plugins, glanceLastValue: false } }), spanGaps: true },
+  });
 
   let h = "<table><thead><tr><th>标的</th><th>状态</th><th>最新收盘</th>"
     + "<th>当日涨跌幅</th><th>近一月</th></tr></thead><tbody>";
@@ -437,21 +696,39 @@ async function loadStock() {
       labels: L,
       datasets: [
         { label: "影线", data: q.klines.map(k => [k.low, k.high]), backgroundColor: colors,
-          barThickness: 2, grouped: false, order: 2 },
+          barThickness: 2, grouped: false, order: 2, borderRadius: 0, borderSkipped: false },
         { label: "实体", data: q.klines.map(k => [k.open, k.close]), backgroundColor: colors,
-          barThickness: 7, grouped: false, order: 1 },
+          barThickness: 8, grouped: false, order: 1, borderRadius: 1, borderSkipped: false },
       ],
     },
-    options: { ...baseOpts, plugins: { legend: { display: false },
-      tooltip: { callbacks: { label: (c) => {
-        const k = q.klines[c.dataIndex];
-        return `开${k.open} 高${k.high} 低${k.low} 收${k.close}`; } } } },
-      scales: { x: { ...baseOpts.scales.x, stacked: false }, y: { ...baseOpts.scales.y, beginAtZero: false } } },
+    options: {
+      ...baseOpts,
+      plugins: {
+        ...baseOpts.plugins,
+        legend: { display: false },
+        glanceLastValue: false,
+        tooltip: {
+          ...baseOpts.plugins.tooltip,
+          callbacks: {
+            label: (c) => {
+              const k = q.klines[c.dataIndex];
+              return `开${k.open} 高${k.high} 低${k.low} 收${k.close}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ...baseOpts.scales.x, stacked: false },
+        y: { ...baseOpts.scales.y, beginAtZero: false },
+      },
+    },
   });
+  setChartCopy("smK", { title: "日K · 红涨绿跌", sub: `${q.name} · ${L[0] || ""} → ${L[L.length - 1] || ""}`, src: "OHLC · EMPTY UP / SOLID DOWN" });
+  setChartCopy("smVol", { title: "成交量", sub: "柱色跟随当日涨跌", src: "VOLUME" });
   mkChart(document.getElementById("smVol"), {
     type: "bar",
-    data: { labels: L, datasets: [{ label: "成交量", data: q.klines.map(k => k.volume), backgroundColor: colors }] },
-    options: { ...baseOpts, plugins: { legend: { display: false } } },
+    data: { labels: L, datasets: [{ label: "成交量", data: q.klines.map(k => k.volume), backgroundColor: colors, borderRadius: 2, borderSkipped: false, barPercentage: 0.78 }] },
+    options: { ...baseOpts, plugins: { ...baseOpts.plugins, legend: { display: false }, glanceLastValue: false } },
   });
 
   renderTable(document.getElementById("sm-table"), q.klines.slice(-12).reverse(),
@@ -504,45 +781,86 @@ async function loadCompare() {
   // 基准取研究线（与总览一致）
   const research = seriesMap.research_sim_100k;
   if (research?.dates?.length) {
-    cumDs.push(lineDS("基准", alignBy(research.dates, research.series.cum_bench), COLORS.bench));
+    cumDs.push(lineDS("基准", alignBy(research.dates, research.series.cum_bench), COLORS.bench, false, { dash: [5, 4], borderWidth: 1.4 }));
   }
+  const liveCum = lastNonNull(cumDs.find(d => d.label === "实盘线")?.data);
+  const resCum = lastNonNull(cumDs.find(d => d.label === "研究模拟线")?.data);
+  let cmpTitle = "四线累计收益";
+  if (liveCum != null && resCum != null) {
+    const gap = liveCum - resCum;
+    cmpTitle = gap >= 0 ? `实盘领先研究 ${pct(gap)}` : `实盘落后研究 ${pct(gap)}`;
+  }
+  setChartCopy("cmpChart", { title: cmpTitle, sub: ACCOUNT_LEGEND, src: "CUM RETURN · UNION OF TRADE DAYS · %" });
   mkChart(document.getElementById("cmpChart"), {
     type: "line",
     data: { labels, datasets: cumDs },
-    options: { ...baseOpts, spanGaps: true },
+    options: { ...withLegend(baseOpts), spanGaps: true },
   });
+  setChartCopy("cmpExcessChart", { title: "累计超额", sub: ACCOUNT_LEGEND, src: "CUM EXCESS · %" });
   mkChart(document.getElementById("cmpExcessChart"), {
     type: "line",
     data: { labels, datasets: excessDs },
-    options: { ...baseOpts, spanGaps: true },
+    options: { ...withLegend(baseOpts), spanGaps: true },
   });
 
   const gapDays = c.common_days || [];
+  const gapVals = gapDays.map(d => d.gap);
+  const gapLast = lastNonNull(gapVals);
+  setChartCopy("cmpGapChart", {
+    title: gapLast == null ? "日收益差（实盘−研究）" : `末日差 ${pct(gapLast)} · 实盘相对研究`,
+    sub: "正=实盘当日更好 · 红正绿负 · %",
+    src: "COMMON DAYS · LIVE − RESEARCH",
+  });
   mkChart(document.getElementById("cmpGapChart"), {
     type: "bar",
     data: {
       labels: gapDays.map(d => d.date),
-      datasets: [{
-        label: "日收益差(实盘−研究)%",
-        data: gapDays.map(d => d.gap),
-        backgroundColor: gapDays.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99"),
-      }],
+      datasets: [barDS("日收益差%", gapVals, { signed: true })],
     },
-    options: baseOpts,
+    options: {
+      ...baseOpts,
+      plugins: { ...baseOpts.plugins, glanceLastValue: false },
+      scales: {
+        x: { ...baseOpts.scales.x, ticks: { ...baseOpts.scales.x.ticks, maxTicksLimit: 6 } },
+        y: {
+          ...baseOpts.scales.y,
+          grid: {
+            color: (ctx) => ctx.tick.value === 0 ? "rgba(235,232,224,0.28)" : GLANCE.grid,
+            lineWidth: (ctx) => ctx.tick.value === 0 ? 1.2 : 1,
+          },
+        },
+      },
+    },
   });
 
   const taGap = c.ta_gap_days || [];
+  const taVals = taGap.map(d => d.gap);
+  const taLast = lastNonNull(taVals);
+  setChartCopy("cmpTaGapChart", {
+    title: taLast == null ? "超额差（TA−对照）" : `末日超额差 ${pct(taLast)} · TA 相对对照`,
+    sub: "正=TA 当日超额更好 · 红正绿负 · %",
+    src: "COMMON DAYS · TA − CONTROL",
+  });
   mkChart(document.getElementById("cmpTaGapChart"), {
     type: "bar",
     data: {
       labels: taGap.map(d => d.date),
-      datasets: [{
-        label: "超额差(TA−对照)%",
-        data: taGap.map(d => d.gap),
-        backgroundColor: taGap.map(d => d.gap >= 0 ? COLORS.red + "99" : COLORS.green + "99"),
-      }],
+      datasets: [barDS("超额差%", taVals, { signed: true })],
     },
-    options: baseOpts,
+    options: {
+      ...baseOpts,
+      plugins: { ...baseOpts.plugins, glanceLastValue: false },
+      scales: {
+        x: { ...baseOpts.scales.x, ticks: { ...baseOpts.scales.x.ticks, maxTicksLimit: 6 } },
+        y: {
+          ...baseOpts.scales.y,
+          grid: {
+            color: (ctx) => ctx.tick.value === 0 ? "rgba(235,232,224,0.28)" : GLANCE.grid,
+            lineWidth: (ctx) => ctx.tick.value === 0 ? 1.2 : 1,
+          },
+        },
+      },
+    },
   });
 
   renderTable(document.getElementById("cmp-fills"), c.fill_diff,
@@ -752,14 +1070,22 @@ async function selectSentiment(instrument) {
     histBox.innerHTML = h + "</tbody></table>";
   }
   const hChrono = [...hist].reverse();
+  setChartCopy("sentHistChart", {
+    title: "情绪轨迹",
+    sub: "分数 −1 ~ 1 · 历史报告日",
+    src: "SENTIMENT SCORE",
+  });
   mkChart(document.getElementById("sentHistChart"), {
     type: "line",
     data: {
       labels: hChrono.map(x => x.date),
-      datasets: [lineDS("情绪分", hChrono.map(x => x.score), COLORS.live)],
+      datasets: [lineDS("情绪分", hChrono.map(x => x.score), GLANCE.hero)],
     },
-    options: { ...baseOpts, plugins: { legend: { display: false } },
-      scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, min: -1, max: 1 } } },
+    options: {
+      ...baseOpts,
+      plugins: { ...baseOpts.plugins, legend: { display: false } },
+      scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, min: -1, max: 1 } },
+    },
   });
 
   const meta = r.meta || {};
@@ -802,22 +1128,25 @@ async function selectSentiment(instrument) {
         : "近 90 日累计";
       priceCap.textContent = `日线累计% · ${L[0] || "?"} 至 ${L[L.length - 1] || "?"} · ${closes.length} 根`;
       // 单轴：窗口累计收益（起点归零）。价格见上方「窗口涨跌」卡片，避免双 Y 轴量纲混淆。
+      const lastCum = lastNonNull(cum);
+      setChartCopy(canvas, {
+        title: lastCum == null ? "近 90 天累计" : `窗口累计 ${pct(lastCum)}`,
+        sub: `${L[0] || ""} → ${L[L.length - 1] || ""} · 起点归零`,
+        src: "DAILY CLOSE · CUM %",
+      });
       mkChart(canvas, {
         type: "line",
         data: {
           labels: L,
           datasets: [
-            lineDS("窗口累计%", cum, COLORS.research, true),
+            lineDS("窗口累计%", cum, lastCum != null && lastCum < 0 ? COLORS.green : COLORS.red, true),
           ],
         },
         options: {
           ...baseOpts,
           scales: {
             x: baseOpts.scales.x,
-            y: {
-              ...baseOpts.scales.y,
-              title: { display: true, text: "累计%（起点归零）", color: "#8b98a9" },
-            },
+            y: { ...baseOpts.scales.y },
           },
         },
       });
@@ -2081,10 +2410,672 @@ document.getElementById("swing-run")?.addEventListener("click", async () => {
 });
 
 // ----------------- 路由 -----------------
+// ----------------- 大盘看板（market_board，池内统计，只读） -----------------
+let boardDay = null;       // 选中的快照日（null=最新）
+let boardDaysLoaded = false;
+
+function boardGradeBadge(g) {
+  const color = { S: "#e5534b", A: "#d29922", B: "#3b82d6", C: "#8b98a9" }[g] || "#8b98a9";
+  return `<span class="board-grade" style="background:${color}">${g}</span>`;
+}
+
+async function loadBoard() {
+  // 1) 快照日期下拉（仅首次）
+  if (!boardDaysLoaded) {
+    try {
+      const dd = await getJSON("/api/board/days");
+      const sel = document.getElementById("board-day");
+      sel.innerHTML = dd.days.map(d => `<option value="${d}">${d}</option>`).join("");
+      if (dd.days.length) sel.value = dd.days[0];
+      sel.onchange = () => { boardDay = sel.value; loadBoardData(); };
+      boardDaysLoaded = true;
+    } catch (e) { console.error(e); }
+  }
+  await loadBoardData();
+}
+
+async function loadBoardData() {
+  const qs = boardDay ? `?day=${boardDay}` : "";
+  const [ov, lad, stg, thm, rot, flow, nw] = await Promise.all([
+    getJSON("/api/board/overview" + qs),
+    getJSON("/api/board/ladder" + qs),
+    getJSON("/api/board/strong" + qs),
+    getJSON("/api/board/themes" + qs),
+    getJSON("/api/board/rotation" + qs),
+    getJSON("/api/board/fundflow" + qs),
+    getJSON("/api/board/news" + qs),
+  ]);
+  const meta = document.getElementById("board-meta");
+  const jobEl = document.getElementById("board-job");
+  if (!ov.available) {
+    meta.textContent = "尚无快照";
+    jobEl.textContent = ov.disclaimer || "";
+    if (ov.job && ov.job.status === "running") jobEl.textContent = "快照生成中… " + (ov.job.message || "");
+    return;
+  }
+  jobEl.textContent = ov.job && ov.job.status === "running" ? "后台生成中…" : "";
+  meta.textContent = `数据日 ${ov.day} | 池内 ${ov.pool?.size ?? "-"} 只 | 生成于 ${ov.generated || "-"}` +
+    (ov.status === "partial" ? ` | ⚠ 部分模块失败 ${ov.errors.length}` : "");
+
+  renderBoardPanorama(ov);
+  renderBoardLadder(lad);
+  renderBoardStrong(stg, flow);
+  renderBoardLimit(lad);
+  renderBoardThemes(thm, rot);
+  renderBoardNews(nw);
+
+  // 已有盘中快照则显示徽章（不自动覆盖盘后图表）
+  try {
+    const intra = await getJSON("/api/board/intraday");
+    if (intra.available) showIntradayBadge(intra);
+  } catch (e) { /* 无盘中快照时静默 */ }
+}
+
+function tempTone(temp) {
+  if (temp >= 60) return GLANCE.hero;
+  if (temp >= 40) return COLORS.amber;
+  return GLANCE.muted;
+}
+
+function renderThermoBlock(el, { temp, label, emotion, reasons, t = {}, live = false } = {}) {
+  if (!el) return;
+  const tone = tempTone(temp);
+  const up = t.up ?? 0, down = t.down ?? 0;
+  const tot = Math.max(1, up + down);
+  const upW = ((up / tot) * 100).toFixed(1);
+  const tClamp = Math.max(0, Math.min(100, temp ?? 50));
+  const broken = t.broken_rate != null ? `（${fmt(t.broken_rate * 100, 0)}%）` : "";
+  el.innerHTML = `
+    <div class="thermo-head">
+      <div class="thermo-value" style="color:${tone}">${fmt(temp, 0)}°</div>
+      <div class="thermo-copy">
+        <div class="thermo-label" style="color:${tone}">${label || "—"}</div>
+        <div class="thermo-emotion">${live ? "盘中口径（手动刷新）" : `情绪 ${emotion || "—"}`}</div>
+      </div>
+    </div>
+    <div class="temp-track" aria-hidden="true">
+      <span class="temp-fill" style="width:${tClamp}%;background:${tone}"></span>
+      <span class="temp-thumb" style="left:${tClamp}%;background:${tone}"></span>
+    </div>
+    <div class="breadth" role="img" aria-label="上涨 ${up} 下跌 ${down}">
+      <div class="breadth-track">
+        <span class="breadth-up" style="width:${upW}%"></span>
+        <span class="breadth-dn" style="flex:1"></span>
+      </div>
+      <div class="breadth-legend">
+        <span class="pos">上涨 ${up}</span>
+        <span class="neg">下跌 ${down}</span>
+      </div>
+    </div>
+    <div class="thermo-facts">
+      <span class="pos">涨停 ${t.limit_up ?? 0}</span>
+      <span class="neg">跌停 ${t.limit_down ?? 0}</span>
+      <span>炸板 ${t.broken ?? 0}${broken}</span>
+      <span>最高连板 ${t.max_streak ?? 0}</span>
+      <span class="pos">&gt;5% ${t.up_gt5 ?? 0}</span>
+      <span class="neg">跌超5% ${t.down_lt5 ?? 0}</span>
+    </div>
+    ${reasons?.length ? `<p class="thermo-why">${reasons.join("；")}</p>` : ""}`;
+}
+
+// ---- 全景 ----
+function renderBoardPanorama(ov) {
+  const t = ov.thermometer || {};
+  const temp = ov.temperature ?? 50;
+  renderThermoBlock(document.getElementById("board-thermo"), {
+    temp,
+    label: ov.temperature_label || "—",
+    emotion: ov.emotion,
+    reasons: ov.emotion_reasons,
+    t,
+  });
+
+  const env = ov.index_env || {};
+  document.getElementById("board-index-env").innerHTML = env.available ? `
+    <div class="env-compact">
+      <div class="env-score">${fmt(env.env_score, 0)}</div>
+      <div>
+        <div class="env-label">${env.env_label}</div>
+        <div class="env-sub">${env.benchmark || ""} · ${env.trend || ""}</div>
+      </div>
+    </div>
+    <div class="env-facts">
+      <div>20日线 <b class="${env.above_ma20 ? "pos" : "neg"}">${env.above_ma20 ? "上方" : "下方"}</b></div>
+      <div>20日 <span class="${cls(env.ret20 * 100)}">${pct(env.ret20 * 100)}</span></div>
+      <div>量能 5/20 ${fmt(env.vol_ratio)}</div>
+      <div>收盘 ${fmt(env.close)}</div>
+    </div>` : `<div class="empty">指数环境不可用${env.error ? "：" + env.error : ""}</div>`;
+
+  setChartCopy("boardEmotionChart", {
+    title: `${ov.emotion || "情绪周期"} · 近15日`,
+    sub: "温度线 · 涨停红柱 / 跌停绿柱（家数，跌停向下）",
+    src: "POOL · 15D · TEMPERATURE + LIMITS",
+  });
+  setChartCopy("boardPeriodChart", {
+    title: `${ov.period30 || "30日行情"} · 池内等权`,
+    sub: (ov.period30_reasons || []).join("；") || "净值相对窗口起点 · %",
+    src: "POOL EQUAL WEIGHT · 30D",
+  });
+  const emoLabel = document.getElementById("board-emotion-label");
+  const perLabel = document.getElementById("board-period-label");
+  if (emoLabel) emoLabel.textContent = "";
+  if (perLabel) perLabel.textContent = "";
+
+  const cols = [
+    ["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
+    ["ret", "涨幅%"], ["streak", "连板"], ["limit_type", "涨停类型"],
+  ];
+  const mapRows = rows => (rows || []).map(r => ({
+    ...r, ret: r.ret != null ? +(r.ret * 100).toFixed(2) : null,
+    limit_type: r.limit_type || "-", streak: r.streak || "",
+  }));
+  renderTable(document.getElementById("board-gainers"), mapRows(ov.gainers), cols, "无数据", "instrument");
+  renderTable(document.getElementById("board-losers"), mapRows(ov.losers), cols, "无数据", "instrument");
+
+  // 曲线图
+  loadBoardCharts();
+}
+
+async function loadBoardCharts() {
+  const qs = boardDay ? `?day=${boardDay}` : "";
+  const cyc = await getJSON("/api/board/cycle" + qs);
+  if (!cyc.available) return;
+
+  const s15 = cyc.series15 || [];
+  const n15 = s15.length;
+  mkChart(document.getElementById("boardEmotionChart"), {
+    type: "bar",
+    data: {
+      labels: s15.map(x => x.day.slice(5)),
+      datasets: [
+        {
+          type: "line",
+          ...lineDS("温度", s15.map(x => x.temperature), GLANCE.ink),
+          yAxisID: "y",
+          order: 2,
+        },
+        {
+          type: "bar",
+          label: "涨停家数",
+          data: s15.map(x => x.limit_up),
+          backgroundColor: hexAlpha(COLORS.red, 0.72),
+          borderRadius: 99,
+          borderSkipped: false,
+          barPercentage: 0.7,
+          yAxisID: "y1",
+          order: 1,
+        },
+        {
+          type: "bar",
+          label: "跌停家数",
+          data: s15.map(x => -(x.limit_down || 0)),
+          backgroundColor: hexAlpha(COLORS.green, 0.72),
+          borderRadius: 99,
+          borderSkipped: false,
+          barPercentage: 0.7,
+          yAxisID: "y1",
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      ...baseOpts,
+      plugins: { ...baseOpts.plugins, glanceLastValue: false },
+      animation: {
+        duration: 800,
+        easing: "easeOutQuart",
+        delay: ctx => (ctx.type === "data" && n15 <= 20 ? ctx.dataIndex * 40 : 0),
+      },
+      scales: {
+        ...baseOpts.scales,
+        y: { ...baseOpts.scales.y, min: 0, max: 100 },
+        y1: {
+          ...baseOpts.scales.y,
+          position: "right",
+          grid: { drawOnChartArea: false },
+        },
+      },
+    },
+  });
+
+  const s30 = cyc.series30 || [];
+  const nav = s30.map(x => +((x.eq_nav - 1) * 100).toFixed(2));
+  mkChart(document.getElementById("boardPeriodChart"), {
+    type: "line",
+    data: {
+      labels: s30.map(x => x.day.slice(5)),
+      datasets: [lineDS("池内等权", nav, lastNonNull(nav) < 0 ? COLORS.green : COLORS.red, true)],
+    },
+    options: baseOpts,
+  });
+}
+
+// ---- 连板梯队 ----
+function renderBoardLadder(lad) {
+  if (!lad.available) return;
+  const ladder = lad.ladder || {};
+  const tiersEl = document.getElementById("board-tiers");
+  if (!ladder.tiers || !ladder.tiers.length) {
+    tiersEl.innerHTML = `<div class="empty">当日无 ≥2 连板（情绪低位）</div>`;
+  } else {
+    let h = "";
+    for (const t of ladder.tiers) {
+      const width = Math.min(100, t.streak * 18 + 20);
+      h += `<div class="tier-row"><div class="tier-head" style="width:${width}%">
+              <b>${t.streak}板</b> × ${t.count}</div>
+            <div class="tier-stocks">` +
+        t.stocks.map(s => {
+          const ua = s.unlock_alert;
+          const uaHtml = ua ? `<i class="unlock-warn" title="${ua.days_left}日后解禁 ${ua.ratio_pct}% ${ua.market_value_yi ?? "-"}亿">⚠解禁</i>` : "";
+          return `<span class="tier-stock clickable" data-inst="${s.instrument}">${s.name || s.instrument}
+             <i class="muted">${s.limit_type || ""}</i>${uaHtml}</span>`;
+        }).join("") +
+        `</div></div>`;
+    }
+    tiersEl.innerHTML = h;
+    tiersEl.querySelectorAll(".tier-stock.clickable").forEach(el =>
+      el.onclick = () => openStock(el.dataset.inst));
+  }
+
+  renderTable(document.getElementById("board-survival"),
+    (ladder.survival || []).map(s => ({ ...s, rate: +(s.rate * 100).toFixed(1) })),
+    [["streak", "板位"], ["rate", "晋级率%"], ["samples", "样本日"]],
+    "样本不足");
+
+  renderTable(document.getElementById("board-industry"), lad.industry_dist || [],
+    [["industry", "行业"], ["count", "涨停家数"]], "当日无涨停");
+
+  renderTable(document.getElementById("board-first"),
+    (ladder.first_boards || []).map(r => ({ ...r, ret: r.ret != null ? +(r.ret * 100).toFixed(2) : null })),
+    [["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
+     ["ret", "涨幅%"], ["limit_type", "类型"]],
+    "当日无首板", "instrument");
+}
+
+// ---- 涨停复盘：封单散点图 + 预警 + 明细 ----
+async function renderBoardLimit(lad) {
+  const scatter = await getJSON("/api/board/limit-scatter");
+  if (!scatter.available) {
+    document.getElementById("board-limit-detail").innerHTML =
+      `<div class="empty">${scatter.disclaimer || "无数据"}</div>`;
+    return;
+  }
+  const modeEl = document.getElementById("board-scatter-mode");
+  modeEl.textContent = scatter.mode === "intraday"
+    ? `（盘中实时 ${scatter.generated || ""}）`
+    : `（盘后口径 ${scatter.generated || ""}，点「刷新行情」看封单）`;
+
+  const pts = scatter.scatter || [];
+  const canvas = document.getElementById("boardScatterChart");
+  const colorFor = p => (p.y >= 3 ? GLANCE.hero : (p.y === 2 ? GLANCE.ink : GLANCE.faint));
+  const hi = pts.filter(p => (p.y || 0) >= 3).length;
+  setChartCopy(canvas, {
+    title: hi ? `${hi} 只 ≥3 板 · 封单气泡` : "封单强度 · 连板气泡",
+    sub: scatter.mode === "intraday"
+      ? "x=封单额/流通市值% · y=连板 · 面积=√成交额 · 橙=3板以上"
+      : "盘后无盘口 · 面积=√成交额 · 点击看评分卡",
+    src: scatter.mode === "intraday" ? "INTRADAY SEALED / FLOAT MV" : "POST-CLOSE · CLICK FOR CARD",
+  });
+  mkChart(canvas, {
+    type: "bubble",
+    data: {
+      datasets: [{
+        label: "涨停票",
+        data: pts.map(p => ({
+          x: p.x, y: p.y,
+          r: Math.max(4, Math.min(22, Math.sqrt(Math.max(0, p.r_amt || 0)) * 6)),
+          _p: p,
+        })),
+        backgroundColor: pts.map(p => hexAlpha(colorFor(p), 0.72)),
+        borderColor: pts.map(p => colorFor(p)),
+        borderWidth: 1.25,
+      }],
+    },
+    options: {
+      ...baseOpts,
+      onClick: (evt, els) => {
+        if (els.length) {
+          const p = pts[els[0].index];
+          openBoardCard(p.instrument);
+        }
+      },
+      onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? "pointer" : "default"; },
+      plugins: {
+        ...baseOpts.plugins,
+        legend: { display: false },
+        glanceLastValue: false,
+        tooltip: {
+          ...baseOpts.plugins.tooltip,
+          callbacks: {
+            label: ctx => {
+              const p = ctx.raw._p;
+              const lines = [`${p.name || p.instrument}  ${p.y}板`];
+              if (scatter.mode === "intraday") {
+                lines.push(`封单 ${p.sealed_yi}亿 (${p.x}%)`, `成交额 ${p.r_amt}亿`,
+                           `换手 ${p.turnover_pct}%  流通 ${p.float_mv_yi}亿`);
+              } else {
+                lines.push(`成交额 ${p.r_amt}亿`, `类型 ${p.limit_type || "-"}`);
+              }
+              return lines;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ...baseOpts.scales.x,
+          title: {
+            display: true,
+            text: scatter.mode === "intraday" ? "封单额 / 流通市值 %" : "封单强度（盘后无盘口）",
+            color: GLANCE.muted,
+            font: { size: 11, weight: 600, family: GLANCE.font },
+          },
+        },
+        y: {
+          ...baseOpts.scales.y,
+          min: 0,
+          suggestedMax: 5,
+          ticks: { ...baseOpts.scales.y.ticks, stepSize: 1 },
+          title: { display: true, text: "连板数", color: GLANCE.muted, font: { size: 11, weight: 600, family: GLANCE.font } },
+        },
+      },
+    },
+  });
+
+  // 涨停预警（仅盘中模式有）
+  renderTable(document.getElementById("board-warn"),
+    (scatter.warn_near_limit || []).map(r => ({ ...r })),
+    [["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
+     ["chg_pct", "涨幅%"], ["vol_ratio", "量比"], ["turnover_pct", "换手%"]],
+    scatter.mode === "intraday" ? "当前无逼近涨停（≥8%/15%）个股" : "盘后模式无预警，点「刷新行情」获取盘中预警",
+    "instrument");
+
+  // 明细表：盘中用实时 limit_ups，盘后用梯队
+  if (scatter.mode === "intraday") {
+    const intra = await getJSON("/api/board/intraday");
+    renderTable(document.getElementById("board-limit-detail"),
+      ((intra.limit_ups) || []).map(r => ({
+        ...r, sealed_ratio_pct: r.sealed_ratio != null ? +(r.sealed_ratio * 100).toFixed(2) : null,
+      })),
+      [["instrument", "代码"], ["name", "名称"], ["industry", "行业"], ["streak", "连板"],
+       ["chg_pct", "涨幅%"], ["sealed_yi", "封单(亿)"], ["sealed_ratio_pct", "封单/流通%"],
+       ["vol_ratio", "量比"], ["turnover_pct", "换手%"]],
+      "当前无涨停", "instrument");
+  } else {
+    const ladder = lad.ladder || {};
+    const all = [];
+    for (const t of ladder.tiers || []) for (const s of t.stocks) all.push(s);
+    all.push(...(ladder.first_boards || []));
+    all.sort((a, b) => b.streak - a.streak || (b.amount || 0) - (a.amount || 0));
+    renderTable(document.getElementById("board-limit-detail"),
+      all.map(r => ({ ...r, ret: r.ret != null ? +(r.ret * 100).toFixed(2) : null,
+                     amount: r.amount ? +(r.amount / 1e8).toFixed(2) : null })),
+      [["instrument", "代码"], ["name", "名称"], ["industry", "行业"], ["streak", "连板"],
+       ["limit_type", "类型"], ["ret", "涨幅%"], ["amount", "成交额(亿)"]],
+      "当日池内无涨停", "instrument");
+  }
+}
+
+// ---- 评分卡抽屉 ----
+async function openBoardCard(instrument) {
+  const drawer = document.getElementById("board-drawer");
+  const mask = document.getElementById("board-drawer-mask");
+  const body = document.getElementById("board-drawer-body");
+  const title = document.getElementById("board-drawer-title");
+  drawer.classList.remove("hidden");
+  mask.classList.remove("hidden");
+  title.textContent = instrument;
+  body.innerHTML = `<div class="empty">加载中…</div>`;
+  mask.onclick = closeBoardCard;
+  try {
+    const c = await getJSON(`/api/board/stock/${instrument}`);
+    title.innerHTML = `${c.name || instrument} <span class="muted">${instrument}</span> ${boardGradeBadge(c.grade)} <b style="color:#e6edf3">${fmt(c.score, 1)}分</b>`;
+    const rt = c.realtime || {};
+    const dims = Object.entries(c.dimensions || {});
+    body.innerHTML = `
+      ${rt.price ? `<div class="card-quote">
+        <span class="card-price ${cls(rt.chg_pct)}">${fmt(rt.price)}</span>
+        <span class="${cls(rt.chg_pct)}">${pct(rt.chg_pct)}</span>
+        ${rt.at_limit_up ? `<span class="limit-badge">涨停${c.streak > 1 ? c.streak + "板" : ""}</span>` : ""}
+        ${rt.sealed_amt ? `<span class="muted">封单 ${(rt.sealed_amt / 1e8).toFixed(2)}亿（${(rt.sealed_ratio * 100).toFixed(2)}%）</span>` : ""}
+      </div>
+      <div class="card-sub muted">量比 ${fmt(rt.vol_ratio)} · 换手 ${fmt(rt.turnover_pct)}% · 成交 ${fmt(rt.amount_yi, 1)}亿 · 流通 ${fmt(rt.float_mv_yi, 0)}亿</div>` : ""}
+      <h4>五维评分</h4>
+      <div class="dims">${dims.map(([k, v]) => `
+        <div class="dim-row"><span class="dim-name">${k}</span>
+          <div class="dim-bar"><div class="dim-fill" style="width:${v}%;background:${v >= 65 ? "#e5534b" : v >= 50 ? "#d29922" : "#3b82d6"}"></div></div>
+          <span class="dim-val">${fmt(v, 0)}</span></div>`).join("")}
+      </div>
+      <h4>盘后横截面（${c.snapshot_day || "-"}）</h4>
+      <div class="card-sub">${c.strong ?
+        `盘后评分 <b>${fmt(c.strong.score, 1)}</b>（${c.strong.grade}） · 20日动量 ${pct((c.strong.momentum_20d || 0) * 100, 1)} · 相对强度 ${pct((c.strong.rs_20d || 0) * 100, 1)} · 量比 ${fmt(c.strong.vol_ratio)}` :
+        "未进盘后强势榜 TOP50"}</div>
+      <div class="card-sub muted">所属行业当日涨停 ${c.industry_limit_ups} 家 · 当前 ${c.streak || 0} 连板</div>
+      ${(c.notes || []).length ? `<div class="muted small">${c.notes.join("；")}</div>` : ""}
+      <div class="card-actions">
+        <button class="mini-btn" onclick="closeBoardCard();openStock('${instrument}')">看 K 线</button>
+      </div>
+      <p class="muted small">${c.disclaimer || ""}</p>`;
+  } catch (e) {
+    body.innerHTML = `<div class="empty">加载失败：${e.message}</div>`;
+  }
+}
+function closeBoardCard() {
+  document.getElementById("board-drawer").classList.add("hidden");
+  document.getElementById("board-drawer-mask").classList.add("hidden");
+}
+document.getElementById("board-drawer-close")?.addEventListener("click", closeBoardCard);
+
+// ---- 刷新行情（盘中实时） ----
+document.getElementById("board-refresh")?.addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/board/refresh", { method: "POST" });
+    const j = await r.json();
+    const jobEl = document.getElementById("board-job");
+    if (j.busy) { jobEl.textContent = "刷新中…"; return; }
+    jobEl.textContent = "正在拉取实时报价（约10秒）…";
+    const timer = setInterval(async () => {
+      const d = await getJSON("/api/board/intraday");
+      if (d.job && d.job.status !== "running") {
+        clearInterval(timer);
+        jobEl.textContent = d.job.message || "完成";
+        if (d.available) {
+          showIntradayBadge(d);
+          renderBoardLimit(await getJSON("/api/board/ladder"));
+          renderBoardPanoramaIntraday(d);
+        }
+      }
+    }, 2000);
+  } catch (e) { console.error(e); }
+});
+
+function showIntradayBadge(d) {
+  const el = document.getElementById("board-intraday-badge");
+  el.classList.remove("hidden");
+  el.textContent = `实时行情 ${d.generated || ""} · 报价 ${d.quotes_ok}/${d.quotes_total} 只 · 盘后快照 ${d.snapshot_day || "-"}`;
+}
+
+// 盘中刷新后同步全景温度计（叠加实时角标，不覆盖盘后历史曲线）
+function renderBoardPanoramaIntraday(d) {
+  const t = d.thermometer || {};
+  renderThermoBlock(document.getElementById("board-thermo"), {
+    temp: t.temperature ?? 50,
+    label: "实时",
+    t,
+    live: true,
+  });
+  // 涨跌榜换实时
+  getJSON("/api/board/intraday").then(intra => {
+    if (!intra.available) return;
+    const cols = [["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
+                  ["chg_pct", "涨幅%"], ["vol_ratio", "量比"], ["turnover_pct", "换手%"]];
+    renderTable(document.getElementById("board-gainers"), intra.gainers || [], cols, "无数据", "instrument");
+    renderTable(document.getElementById("board-losers"), intra.losers || [], cols, "无数据", "instrument");
+  });
+}
+
+// ---- 题材轮动 ----
+function renderBoardThemes(thm, rot) {
+  if (thm.available) {
+    renderTable(document.getElementById("board-concepts"),
+      (thm.concepts || []).map(t => ({
+        ...t, pool_limit_list: (t.pool_limit_list || []).join(" "),
+      })),
+      [["name", "概念"], ["chg_pct", "涨幅%"], ["heat", "热度"],
+       ["up_count", "上涨家数"], ["pool_limit_hits", "池内涨停"],
+       ["pool_limit_list", "命中代码"]],
+      "无题材数据");
+    renderTable(document.getElementById("board-ind-list"), thm.industries || [],
+      [["name", "行业"], ["chg_pct", "涨幅%"], ["up_count", "上涨"],
+       ["down_count", "下跌"], ["turnover_pct", "换手%"]],
+      "无行业数据");
+  }
+  // 轮动矩阵：热力着色的表格
+  const rows = rot.rows || [];
+  const el = document.getElementById("board-rotation");
+  if (!rows.length) { el.innerHTML = `<div class="empty">无轮动数据</div>`; return; }
+  const heat = v => {
+    if (v == null) return "";
+    const p = Math.max(-5, Math.min(5, v * 100));
+    const a = Math.min(0.55, Math.abs(p) / 5 * 0.55);
+    return p >= 0 ? `background:rgba(229,83,75,${a})` : `background:rgba(46,160,67,${a})`;
+  };
+  let h = `<table><thead><tr><th>行业</th><th>池内家数</th><th>近5日%</th><th>近10日%</th><th>近20日%</th><th>切换</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    h += `<tr><td>${r.industry}</td><td>${r.n_stocks}</td>
+      <td style="${heat(r.ret_5d)}">${r.ret_5d != null ? pct(r.ret_5d * 100, 1) : "-"}</td>
+      <td style="${heat(r.ret_10d)}">${r.ret_10d != null ? pct(r.ret_10d * 100, 1) : "-"}</td>
+      <td style="${heat(r.ret_20d)}">${r.ret_20d != null ? pct(r.ret_20d * 100, 1) : "-"}</td>
+      <td>${r.shift || ""}</td></tr>`;
+  }
+  el.innerHTML = h + "</tbody></table>";
+}
+
+// ---- 快讯 ----
+function renderBoardNews(nw) {
+  const feedEl = document.getElementById("board-news-feed");
+  const st = nw.stats || {};
+  document.getElementById("board-news-stats").textContent = nw.available
+    ? `（近${nw.lookback_days ?? 3}日 全局快讯 ${st.global_n ?? 0} 条 · 池内动态 ${st.pool_news_n ?? 0} 条 · 池内命中 ${st.global_hit_n ?? 0}）`
+    : `（${nw.error || "无数据"}）`;
+  if (!nw.available) { feedEl.innerHTML = `<div class="empty">${nw.error || "无数据"}</div>`; return; }
+
+  window._boardNewsFeed = nw.global_feed || [];
+  const renderFeed = filter => {
+    let items = window._boardNewsFeed;
+    if (filter === "hits") items = items.filter(x => (x.pool_hits || []).length);
+    if (filter === "policy") items = items.filter(x => x.is_policy);
+    if (!items.length) { feedEl.innerHTML = `<div class="empty">无匹配快讯</div>`; return; }
+    feedEl.innerHTML = items.map(x => {
+      const hits = (x.pool_hits || []).map(hh =>
+        `<span class="news-hit clickable" data-inst="${hh.instrument}">${hh.name || hh.instrument}${hh.via === "code" ? "🔗" : ""}</span>`).join(" ");
+      return `<div class="news-item ${x.pool_hits?.length ? "news-hit-row" : ""}">
+        <span class="news-time muted">${(x.published || "").slice(5, 16)}</span>
+        <span class="news-src">${x.is_policy ? "📌" : ""}${x.source || ""}</span>
+        <span class="news-title">${x.title || ""}</span> ${hits}</div>`;
+    }).join("");
+    feedEl.querySelectorAll(".news-hit.clickable").forEach(el =>
+      el.onclick = () => openBoardCard(el.dataset.inst));
+  };
+  renderFeed("all");
+  document.querySelectorAll(".news-filter-btn").forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll(".news-filter-btn").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      renderFeed(b.dataset.nf);
+    };
+  });
+
+  renderTable(document.getElementById("board-pool-feed"),
+    (nw.pool_feed || []).map(x => ({
+      ...x,
+      published: (x.published || "").slice(5, 16),
+      kind: x.kind || "新闻",
+    })),
+    [["published", "时间"], ["name", "股票"], ["kind", "类型"], ["title", "标题"]],
+    "近 3 日无池内个股动态", "instrument");
+}
+
+// ---- 强势资金 ----
+function renderBoardStrong(stg, flow) {
+  if (!stg.available) return;
+  document.getElementById("board-strong-caliber").textContent =
+    `口径：${stg.caliber || ""}；权重 动量${(stg.weights?.momentum ?? 0) * 100}%/量能${(stg.weights?.volume_ratio ?? 0) * 100}%/强度${(stg.weights?.relative_strength ?? 0) * 100}%`;
+
+  // 资金流向榜
+  if (flow && flow.available) {
+    const fcols = [["instrument", "代码"], ["name", "名称"], ["main_net_yi", "主力净流入(亿)"],
+                   ["main_net_pct", "净占比%"], ["chg_pct", "涨幅%"]];
+    renderTable(document.getElementById("board-inflow"), flow.inflow || [], fcols, "无数据", "instrument");
+    renderTable(document.getElementById("board-outflow"), flow.outflow || [], fcols, "无数据", "instrument");
+  }
+  const rows = (stg.stocks || []).map(s => ({
+    ...s,
+    grade_html: boardGradeBadge(s.grade),
+    momentum_20d: +(s.momentum_20d * 100).toFixed(1),
+    rs_20d: +(s.rs_20d * 100).toFixed(1),
+    ret: +(s.ret * 100).toFixed(2),
+  }));
+  const container = document.getElementById("board-strong-list");
+  if (!rows.length) { container.innerHTML = `<div class="empty">无数据</div>`; return; }
+  let h = `<table><thead><tr><th>#</th><th>评级</th><th>代码</th><th>名称</th><th>行业</th>
+    <th>评分</th><th>20日动量%</th><th>量比</th><th>相对强度%</th><th>当日%</th><th>连板</th></tr></thead><tbody>`;
+  rows.forEach((s, i) => {
+    const ua = s.unlock_alert;
+    const uaHtml = ua ? ` <span class="unlock-warn" title="${ua.days_left}日后解禁 ${ua.ratio_pct}%">⚠</span>` : "";
+    h += `<tr class="grade-${s.grade}">
+      <td>${i + 1}</td><td>${s.grade_html}</td>
+      <td class="clickable" data-inst="${s.instrument}">${s.instrument}</td>
+      <td>${s.name || "-"}${uaHtml}</td><td>${s.industry || "-"}</td>
+      <td><b>${fmt(s.score, 1)}</b></td>
+      <td class="${cls(s.momentum_20d)}">${pct(s.momentum_20d, 1)}</td>
+      <td>${fmt(s.vol_ratio)}</td>
+      <td class="${cls(s.rs_20d)}">${pct(s.rs_20d, 1)}</td>
+      <td class="${cls(s.ret)}">${pct(s.ret)}</td>
+      <td>${s.streak || ""}${s.limit_up ? "🔥" : ""}</td></tr>`;
+  });
+  container.innerHTML = h + "</tbody></table>";
+  container.querySelectorAll("td.clickable").forEach(td =>
+    td.onclick = () => openStock(td.dataset.inst));
+}
+
+// 子页切换
+document.querySelectorAll("#board-subtabs .subtab").forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll("#board-subtabs .subtab").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll("#board .board-sub").forEach(x => x.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("board-" + btn.dataset.sub).classList.add("active");
+  };
+});
+
+// 生成快照按钮 + job 轮询
+document.getElementById("board-run")?.addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/board/run", { method: "POST" });
+    const j = await r.json();
+    if (j.busy) return;
+    const jobEl = document.getElementById("board-job");
+    jobEl.textContent = "快照生成中…";
+    const timer = setInterval(async () => {
+      const dd = await getJSON("/api/board/overview");
+      if (dd.job && dd.job.status !== "running") {
+        clearInterval(timer);
+        boardDaysLoaded = false;   // 刷新日期下拉
+        jobEl.textContent = dd.job.message || "完成";
+        loadBoard();
+      } else {
+        jobEl.textContent = "快照生成中… " + (dd.job?.message || "");
+      }
+    }, 2000);
+  } catch (e) { console.error(e); }
+});
+
 async function loadTab(tab) {
   try {
     if (tab === "overview") await loadOverview();
     else if (tab === "daily-ops") await loadDailyOps();
+    else if (tab === "board") await loadBoard();
     else if (tab === "sentiment") await loadSentiment(true);
     else if (tab === "swing") await loadSwing();
     else if (tab === "research") await loadResearch(true);

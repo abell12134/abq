@@ -2,7 +2,7 @@
 
 Uses overlays.sentiment_memory.llm_router; Agent always tries peak first
 regardless of clock hour (production console wants the self-hosted model).
-Falls back to offpeak unless AGENT_LLM_PEAK_ONLY=1.
+Peak failure falls back to Nous (NOUS_*) then offpeak unless AGENT_LLM_PEAK_ONLY=1.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def chat(
     R = _router()
     errors: list[str] = []
 
-    # 1) force peak (LLM_PEAK_BASE_URL / LLM_PEAK_MODEL)
+    # 1) force peak → 本地自部署；失败自动试 Nous（见 llm_router._chat_candidates）
     try:
         text, meta = R.chat(
             messages,
@@ -51,10 +51,11 @@ def chat(
             timeout=timeout,
         )
         meta = dict(meta)
-        meta["agent_route"] = "peak"
+        ep = meta.get("endpoint", "peak")
+        meta["agent_route"] = "nous_fallback" if ep == "nous" else "peak"
         return text, meta
     except Exception as exc:  # noqa: BLE001
-        errors.append(f"peak: {exc}")
+        errors.append(f"peak/nous: {exc}")
         if peak_only():
             raise RuntimeError("; ".join(errors)) from exc
 
@@ -75,11 +76,15 @@ def chat(
 def describe_route() -> dict[str, Any]:
     R = _router()
     peak = R.peak_endpoint()
+    nous = R.nous_endpoint()
     return {
         "peak_only": peak_only(),
         "peak_configured": peak is not None,
         "peak_base_url": peak.base_url if peak else None,
         "peak_model": peak.model if peak else None,
         "peak_backend": peak.backend if peak else None,
+        "nous_configured": nous is not None,
+        "nous_base_url": nous.base_url if nous else None,
+        "nous_model": nous.model if nous else None,
         "is_peak_hour": R.is_peak_hour(),
     }

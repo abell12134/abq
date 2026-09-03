@@ -83,7 +83,7 @@ contracts/       层间数据契约（信号、目标持仓等 CSV schema）
 configs/         global.yaml 全局配置 + accounts/<account>.yaml 账户 profile（资金/策略/模式）
 validation/      backtrader 复演引擎(replay_backtrader.py) + UMP 裁判(ump_judge.py)，阶段2 已实现
 factor_lab/      （阶段3）LLM 因子提议(llm_propose) + qlib 评估(evaluate) + 五道准入关卡(run_iteration) + 因子库(factors.yaml)
-overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）
+overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）+ market_board（大盘看板：池内温度计/情绪周期/连板梯队/强势评分，纯展示）
 execution/       调仓清单(make_trade_plan) + 成交回填(record_fills) + 模拟成交(simulate_fills) + 对账(reconcile)
 ops/             运维层：编排(run_daily) + 净值(compute_nav) + 日报(daily_report) + 监控(monitor) + 双线复盘(review_accounts) + TA复盘(review_ta_overlay) + 回填(backfill) + 公共库(common) + crontab.example
 contracts/       层间数据契约 schema 校验/读写(schemas.py)
@@ -285,6 +285,28 @@ python overlays/swing_hunter/run_swing_eval.py --date 2026-08-05 --top-n 15 --re
 # Phase 0：历史 hit 率（零 LLM）
 python overlays/swing_hunter/phase0_stats.py --start 2024-01-02 --end 2026-06-30
 ```
+
+### 大盘看板（market_board，纯展示层）
+
+池内（Plan C 生产信号池，约 499 只）涨跌停统计、情绪周期定位、连板梯队、
+强势评分；**只读，不改订单**。设计见 `docs/MARKET_BOARD.md`。
+
+```bash
+# 生成盘后快照（evening 已自动接入，fail-open）
+python overlays/market_board/run_board.py                  # 最新交易日
+python overlays/market_board/run_board.py --day 2026-08-29 --force
+
+# 看板：一级 tab「大盘看板」→ 全景 / 涨停复盘 / 连板梯队 / 强势资金
+# API：GET /api/board/{days,overview,cycle,ladder,strong}，POST /api/board/run
+```
+
+- 池子加载链：`data/meta/board_pool.csv`（可选覆盖）→ 当日 `data/signals/*.csv` → csi500 成分兜底
+- 产出：`data/overlays/market_board/daily/<日>.json`（+ `.done`）、`intraday/latest.json`（手动刷新）
+- 盘中：`POST /api/board/refresh`（腾讯批量报价）→ `GET /api/board/limit-scatter`（封单散点）→ `GET /api/board/stock/<代码>`（评分卡）
+- P3 已交付：`GET /api/board/{themes,rotation,fundflow,news,unlock}`
+  （题材热度/板块轮动/资金流/快讯双流/解禁雷区），并兼容产出 `data/reports/sector_pulse_*.json` 修复旧「市场热度」
+- 注意：东财 push2 主节点偶发 502，已切 `push2delay` 延时节点；解禁用
+  `stock_restricted_release_detail_em`（个股 queue 接口无未来预告）
 
 ```bash
 # 首次建账
