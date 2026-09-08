@@ -10,9 +10,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from . import batch_quotes, pool as pool_mod, store
+
+TZ = ZoneInfo("Asia/Shanghai")
 
 log = logging.getLogger(__name__)
 
@@ -37,28 +41,35 @@ def build_intraday(pool: list[dict] | None = None) -> dict[str, Any]:
     if not quotes:
         return {"ok": False, "error": "批量报价全部失败（外网不可用？）"}
 
-    # 盘后快照补连板数/昨日涨停（无快照也能跑，streak 记 None）
-    _, snap = store.load_latest_daily()
+    # 连板数只从梯队/首板取（涨跌榜 TOP20 含非涨停，streak=0 会盖掉首板）
+    snap_day, snap = store.load_latest_daily()
     streak_map: dict[str, int] = {}
     if snap:
-        for sect, key in (("gainers", None), ("losers", None)):
-            for r in snap.get(sect) or []:
-                streak_map[r["instrument"]] = r.get("streak") or 0
         for t in (snap.get("ladder") or {}).get("tiers") or []:
             for s in t.get("stocks") or []:
                 streak_map[s["instrument"]] = s.get("streak") or 0
         for s in (snap.get("ladder") or {}).get("first_boards") or []:
-            streak_map.setdefault(s["instrument"], s.get("streak") or 0)
+            streak_map[s["instrument"]] = s.get("streak") or 0
+        for sect in ("gainers", "losers"):
+            for r in snap.get(sect) or []:
+                streak_map.setdefault(r["instrument"], r.get("streak") or 0)
 
     rows: list[dict[str, Any]] = []
     limit_ups, warns = [], []
     up = down = flat = up_gt5 = down_lt5 = 0
     broken_n = 0
+    today = datetime.now(TZ).strftime("%Y-%m-%d")
     for inst, q in quotes.items():
         m = meta.get(inst, {})
         prev_streak = streak_map.get(inst, 0)
-        # 实时连板数：昨 N 板 + 今涨停 = N+1（昨首板在 streak_map 里为 1）
-        streak = prev_streak + 1 if q["at_limit_up"] else 0
+        # 实时连板：盘后日 < 今日 → 昨 N 板 + 今涨停 = N+1；同日盘后已含今日则不再 +1
+        if q["at_limit_up"]:
+            if snap_day == today:
+                streak = prev_streak or 1
+            else:
+                streak = (prev_streak or 0) + 1
+        else:
+            streak = 0
         row = {
             "instrument": inst,
             "name": q["name"] or m.get("name", ""),
@@ -121,9 +132,16 @@ def build_intraday(pool: list[dict] | None = None) -> dict[str, Any]:
     temp += (up - down) / n * 20
     temp = max(0.0, min(100.0, temp))
 
+    # session_day 跟报价时间走（节假日腾讯仍返回上个交易日，避免把旧报价标成「今日实时」）
+    qt = next((r.get("quote_time") or "" for r in rows if r.get("quote_time")), "")
+    if len(qt) >= 8 and qt[:8].isdigit():
+        session_day = f"{qt[:4]}-{qt[4:6]}-{qt[6:8]}"
+    else:
+        session_day = datetime.now(TZ).strftime("%Y-%m-%d")
     payload = {
         "ok": True,
-        "trade_day_like": rows[0]["quote_time"][:8] if rows and rows[0]["quote_time"] else None,
+        "session_day": session_day,
+        "trade_day_like": qt[:8] if qt else None,
         "pool_size": len(rows),
         "quotes_ok": len(quotes), "quotes_total": len(instruments),
         "thermometer": {

@@ -26,6 +26,7 @@
     <button class="tab" data-tab="shadow_ta_sim">TA影子线</button>
     <button class="tab" data-tab="compare">四线对比</button>
     <button class="tab" data-tab="daily-ops">操作清单</button>
+    <button class="tab" data-tab="tracking">持仓追踪</button>
     <button class="tab" data-tab="board">大盘看板</button>
     <button class="tab" data-tab="sentiment">舆情跟踪</button>
     <button class="tab" data-tab="swing">短线猎手</button>
@@ -90,6 +91,40 @@
       <div id="daily-ops-list"></div>
     </section>
 
+    <!-- 持仓追踪：自首次买入日起的价格走势 + 买卖节点 + 舆情 -->
+    <section id="tracking" class="panel">
+      <div class="sent-toolbar">
+        <div>
+          <h2 class="sent-title">持仓追踪</h2>
+          <p class="panel-desc">所有被选中过/买卖过的票，自首次买入日起追踪价格走势 · 按跌→涨排序 · 含买卖节点与舆情摘要</p>
+        </div>
+        <div class="sent-actions">
+          <span id="trk-updated" class="sent-updated">—</span>
+          <button id="trk-refresh" type="button">刷新</button>
+          <button id="trk-analyze" type="button" title="对实盘线 + TA影子线当前持仓跑舆情 / 研究 / 短线">跑分析</button>
+          <button id="trk-run" type="button" class="btn-secondary">重新构建</button>
+        </div>
+      </div>
+      <div id="trk-progress" class="sent-progress hidden">
+        <div class="sent-progress-head">
+          <span id="trk-progress-label">追踪快照构建中…</span>
+          <span id="trk-progress-pct">0%</span>
+        </div>
+        <div class="sent-progress-track">
+          <div id="trk-progress-bar" class="sent-progress-bar"></div>
+        </div>
+        <div id="trk-progress-msg" class="sent-progress-msg">—</div>
+      </div>
+      <div id="trk-stats" class="cards"></div>
+      <div class="trk-toolbar">
+        <input id="trk-filter" type="text" placeholder="按代码/名称过滤" autocomplete="off" />
+        <label class="trk-check"><input id="trk-only-held" type="checkbox" /> 仅持仓</label>
+        <label class="trk-check"><input id="trk-only-sent" type="checkbox" /> 仅有舆情</label>
+        <span id="trk-count" class="muted">—</span>
+      </div>
+      <div id="trk-list" class="trk-list"></div>
+    </section>
+
     <!-- 大盘看板（池内统计，只读） -->
     <section id="board" class="panel">
       <div class="board-toolbar">
@@ -152,7 +187,7 @@
         <div class="chart-box chart-box-tall">
           <h2>封单强度</h2>
           <p class="chart-sub" id="board-scatter-sub">x=封单额/流通市值% · y=连板数 · 面积=√成交额 · 点击气泡看评分卡</p>
-          <span id="board-scatter-mode" class="hidden"></span>
+          <span id="board-scatter-mode" class="muted"></span>
           <div class="chart-frame chart-frame-tall"><canvas id="boardScatterChart"></canvas></div>
           <p class="chart-src">LIMIT-UP SCATTER</p>
         </div>
@@ -621,6 +656,50 @@
     <div class="reports"></div>
     <div class="report-view"></div>
   </template>
+
+  <!-- 持仓追踪详情弹窗：走势图 + 买卖节点 + 舆情 -->
+  <div id="trk-modal" class="modal hidden">
+    <div class="modal-box trk-modal-box">
+      <div class="modal-head">
+        <div id="trk-modal-title">—</div>
+        <button id="trk-modal-close">✕</button>
+      </div>
+      <div id="trk-modal-meta" class="sm-meta"></div>
+      <div id="trk-modal-stats" class="sent-stats"></div>
+      <div id="trk-modal-tags" class="sent-tags"></div>
+      <div id="trk-modal-agents" class="trk-agents"></div>
+      <div class="sent-block">
+        <div class="sent-sec-head">
+          <h3>资金流向</h3>
+          <span id="trk-modal-ff-cap" class="sent-cap">当日 · 东财</span>
+        </div>
+        <div id="trk-modal-fundflow" class="table-wrap embedded"></div>
+      </div>
+      <div class="chart-box">
+        <h2>自首次买入日起走势</h2>
+        <p class="chart-sub" id="trk-modal-cap">日线累计% · 起点归零 · 标注买卖节点</p>
+        <div class="chart-frame chart-frame-sent"><canvas id="trkModalChart"></canvas></div>
+        <p class="chart-src">DAILY CLOSE · CUM % · BUY/SELL MARKS</p>
+      </div>
+      <div class="sent-grid">
+        <div class="sent-block">
+          <h3>买入节点</h3>
+          <div id="trk-modal-buys" class="table-wrap embedded"></div>
+        </div>
+        <div class="sent-block">
+          <h3>卖出节点</h3>
+          <div id="trk-modal-sells" class="table-wrap embedded"></div>
+        </div>
+      </div>
+      <div class="sent-block">
+        <div class="sent-sec-head">
+          <h3>舆情摘要</h3>
+          <span id="trk-modal-sent-cap" class="sent-cap">最新报告</span>
+        </div>
+        <div id="trk-modal-sent" class="table-wrap embedded"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- 个股行情弹窗 -->
   <div id="stock-modal" class="modal hidden">

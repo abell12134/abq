@@ -21,6 +21,11 @@ const charts = {};
 const fmt = (v, d = 2) => (v == null || isNaN(v)) ? "-" : Number(v).toLocaleString("zh-CN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v, d = 2) => (v == null || isNaN(v)) ? "-" : (v >= 0 ? "+" : "") + Number(v).toFixed(d) + "%";
 const cls = v => v > 0 ? "pos" : (v < 0 ? "neg" : "");
+const fmtYi = (v, d = 2) => {
+  if (v == null || isNaN(v)) return "—";
+  const n = Number(v);
+  return (n >= 0 ? "+" : "") + n.toFixed(d) + "亿";
+};
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -298,7 +303,7 @@ function applyAccessUI(access = {}) {
     }
   }
   const writeBtns = ["sent-run", "sent-analyze-one", "sent-rerun-one", "swing-run",
-                     "rs-run", "rs-analyze-one", "rs-rerun-one"];
+                     "rs-run", "rs-analyze-one", "rs-rerun-one", "trk-run", "trk-analyze"];
   writeBtns.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle("hidden", demo);
@@ -1353,6 +1358,589 @@ document.getElementById("sent-rerun-one")?.addEventListener("click", () => {
   }
   const btn = document.getElementById("sent-rerun-one");
   triggerSentimentRun({ instrument: sentInst, btn, label: "重新分析本股" });
+});
+
+// ----------------- 持仓追踪 -----------------
+const TRACKING_JOB_KEY = "tracking_job_v1";
+let trkData = null;
+let trkJobTimer = null;
+let trkModalInst = null;
+
+function saveTrkJobLocal(job) {
+  try {
+    if (!job || job.status === "idle") localStorage.removeItem(TRACKING_JOB_KEY);
+    else localStorage.setItem(TRACKING_JOB_KEY, JSON.stringify(job));
+  } catch (e) { /* ignore */ }
+}
+
+function renderTrkProgress(job) {
+  const box = document.getElementById("trk-progress");
+  if (!job || job.status === "idle") { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  const pct = Math.max(0, Math.min(100, Number(job.pct || 0)));
+  document.getElementById("trk-progress-pct").textContent = pct + "%";
+  document.getElementById("trk-progress-bar").style.width = pct + "%";
+  const analyzing = job.kind === "analyze";
+  const label = job.status === "running"
+    ? (job.message || (analyzing ? "持仓分析中…" : "追踪快照构建中…"))
+    : (job.status === "done" ? "完成" : "失败");
+  document.getElementById("trk-progress-label").textContent = label;
+  const cur = job.current
+    ? `${job.current} ${job.current_name || ""}`.trim()
+    : "";
+  document.getElementById("trk-progress-msg").textContent = cur || (job.message || "—");
+}
+
+function stopTrkJobPoll() {
+  if (trkJobTimer) { clearInterval(trkJobTimer); trkJobTimer = null; }
+}
+
+async function pollTrkJobOnce() {
+  try {
+    const a = await getJSON("/api/tracking/analyze/job");
+    if (a && a.status === "running") {
+      saveTrkJobLocal(a);
+      renderTrkProgress(a);
+      return a;
+    }
+    const j = await getJSON("/api/tracking/job");
+    if (j && j.status === "running") {
+      saveTrkJobLocal(j);
+      renderTrkProgress(j);
+      return j;
+    }
+    const shown = (a && a.status && a.status !== "idle") ? a : j;
+    saveTrkJobLocal(shown);
+    renderTrkProgress(shown);
+    return shown;
+  } catch (e) { return null; }
+}
+
+function startTrkJobPoll() {
+  stopTrkJobPoll();
+  trkJobTimer = setInterval(async () => {
+    const j = await pollTrkJobOnce();
+    if (j && j.status !== "running") {
+      stopTrkJobPoll();
+      loadTracking(true);
+    }
+  }, 2000);
+}
+
+async function resumeTrkJobIfAny() {
+  try {
+    const a = await getJSON("/api/tracking/analyze/job");
+    if (a && a.status === "running") {
+      renderTrkProgress(a);
+      startTrkJobPoll();
+      return true;
+    }
+    const j = await getJSON("/api/tracking/job");
+    if (j && j.status === "running") {
+      renderTrkProgress(j);
+      startTrkJobPoll();
+      return true;
+    }
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
+async function loadTrkAnalyzeHint() {
+  const btn = document.getElementById("trk-analyze");
+  if (!btn || !fullAccess) return;
+  try {
+    const d = await getJSON("/api/tracking/analyze/universe");
+    const n = Number(d.total || 0);
+    const labs = (d.account_labels || []).join(" + ");
+    btn.textContent = n ? `跑分析 · ${n} 只` : "跑分析";
+    btn.title = n
+      ? `对${labs || "实盘线 + TA线"}当前持仓跑舆情 / 研究 / 短线`
+      : "实盘线 + TA线当前无持仓";
+    btn.dataset.total = String(n);
+    btn.dataset.labels = labs;
+  } catch (e) { /* ignore */ }
+}
+
+function trkSentBadge(s) {
+  const map = { positive: ["多", "ok"], negative: ["空", "danger"],
+                mixed: ["混", "warn"], neutral: ["中", ""] };
+  const [lbl, cls] = map[s] || ["—", ""];
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+function trkSwingBadge(sw) {
+  if (!sw) return '<span class="muted">—</span>';
+  const st = String(sw.result || sw.state || "").toLowerCase();
+  const map = {
+    hit: ["达标", "ok"], stopped: ["止损", "danger"], expired: ["到期", ""],
+    holding: ["跟踪", "ok"], triggered: ["待入场", "warn"],
+    watch: ["观察", ""], invalid: ["无效", ""], reject: ["否决", ""],
+  };
+  const [lbl, bcls] = map[st] || [st || "—", ""];
+  return `<span class="badge ${bcls}">${lbl}</span>`;
+}
+
+function trkResearchBadge(rs) {
+  if (!rs || !rs.merged_direction) return '<span class="muted">—</span>';
+  const map = { up: ["看涨", "ok"], down: ["看跌", "danger"], hold: ["观望", ""] };
+  const [lbl, bcls] = map[rs.merged_direction] || [rs.merged_direction, ""];
+  return `<span class="badge ${bcls}">${lbl}</span>`;
+}
+
+function trkFundflowCells(ff) {
+  if (!ff) return '<td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>';
+  const main = ff.main_net_yi;
+  const large = (ff.large || {}).net_yi;
+  const li = (ff.large || {}).in_yi;
+  const lo = (ff.large || {}).out_yi;
+  const tip = `主力 流入 ${fmt(ff.main_in_yi, 2)}亿 / 流出 ${fmt(ff.main_out_yi, 2)}亿`
+    + `\n超大+大 流入 ${fmt(li, 2)}亿 / 流出 ${fmt(lo, 2)}亿`;
+  return `<td class="${cls(main)}" title="${tip}">${fmtYi(main)}`
+    + `<div class="muted small">入 ${fmt(ff.main_in_yi, 2)} / 出 ${fmt(ff.main_out_yi, 2)}</div></td>`
+    + `<td class="${cls(large)}" title="${tip}">${fmtYi(large)}`
+    + `<div class="muted small">超大+大</div></td>`
+    + `<td title="${tip}">${fmt(li, 2)}<div class="muted small">大量买入</div></td>`
+    + `<td title="${tip}">${fmt(lo, 2)}<div class="muted small">大量卖出</div></td>`;
+}
+
+function renderTrkFundflow(box, ff) {
+  if (!box) return;
+  if (!ff) {
+    box.innerHTML = '<div class="empty">暂无资金流向（重新构建快照后更新）</div>';
+    return;
+  }
+  const card = (lbl, net, inn, out, extra) => {
+    const netCls = cls(net);
+    return `<div class="trk-ff-card">
+      <div class="lbl">${lbl}</div>
+      <div class="val ${netCls}">${fmtYi(net)}</div>
+      <div class="sub">流入 ${fmtYi(inn)} · 流出 ${fmtYi(out)?.replace("+", "")}${extra || ""}</div>
+    </div>`;
+  };
+  const pctTxt = ff.main_net_pct == null ? "" : ` · 净占比 ${pct(ff.main_net_pct)}`;
+  let h = `<div class="trk-ff-grid">
+    ${card("主力", ff.main_net_yi, ff.main_in_yi, ff.main_out_yi, pctTxt)}
+    ${card("超大单", (ff.super || {}).net_yi, (ff.super || {}).in_yi, (ff.super || {}).out_yi)}
+    ${card("大单", (ff.big || {}).net_yi, (ff.big || {}).in_yi, (ff.big || {}).out_yi)}
+  </div>
+  <div class="trk-ff-grid">
+    ${card("超大+大合计", (ff.large || {}).net_yi, (ff.large || {}).in_yi, (ff.large || {}).out_yi, " · 大量买卖")}
+    ${card("中单", (ff.medium || {}).net_yi, (ff.medium || {}).in_yi, (ff.medium || {}).out_yi)}
+    ${card("小单", (ff.small || {}).net_yi, (ff.small || {}).in_yi, (ff.small || {}).out_yi)}
+  </div>`;
+  const hist = ff.history || [];
+  if (hist.length) {
+    h += `<div class="trk-ff-hist"><table><thead><tr>`
+      + `<th>日期</th><th>主力净(亿)</th><th>超大净(亿)</th><th>大单净(亿)</th><th>超大+大净(亿)</th>`
+      + `</tr></thead><tbody>`;
+    for (const row of hist.slice().reverse()) {
+      h += `<tr><td>${row.date}</td>`
+        + `<td class="${cls(row.main_net_yi)}">${fmtYi(row.main_net_yi)}</td>`
+        + `<td class="${cls(row.super_net_yi)}">${fmtYi(row.super_net_yi)}</td>`
+        + `<td class="${cls(row.big_net_yi)}">${fmtYi(row.big_net_yi)}</td>`
+        + `<td class="${cls(row.large_net_yi)}">${fmtYi(row.large_net_yi)}</td></tr>`;
+    }
+    h += "</tbody></table></div>";
+  }
+  box.innerHTML = h;
+}
+
+function trkAccountTags(accs) {
+  return (accs || []).map(a => `<span class="tag">${ACCOUNT_SHORT[a] || a}</span>`).join("");
+}
+
+function trkFilterRows(rows) {
+  const q = (document.getElementById("trk-filter").value || "").trim().toUpperCase();
+  const onlyHeld = document.getElementById("trk-only-held").checked;
+  const onlySent = document.getElementById("trk-only-sent").checked;
+  return rows.filter(r => {
+    if (onlyHeld && !r.still_held) return false;
+    if (onlySent && !r.sentiment) return false;
+    if (q) {
+      const hay = `${r.instrument} ${r.name || ""}`.toUpperCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderTrkList() {
+  const rows = trkFilterRows(trkData.instruments || []);
+  document.getElementById("trk-count").textContent =
+    `${rows.length} / ${trkData.total || 0} 只`;
+  const box = document.getElementById("trk-list");
+  if (!rows.length) {
+    box.innerHTML = '<div class="empty">无符合条件的标的</div>';
+    return;
+  }
+  let h = '<table class="trk-table"><thead><tr>'
+    + '<th>标的</th><th>账户</th><th>首买日</th><th>首买价</th>'
+    + '<th>最新价</th><th>累计涨跌</th><th>区间最低</th><th>区间最高</th>'
+    + '<th>最大回撤</th><th>持仓</th><th>主力净</th><th>超大+大净</th><th>大量买</th><th>大量卖</th>'
+    + '<th>舆情</th><th>短线</th><th>研究</th><th></th></tr></thead><tbody>';
+  for (const r of rows) {
+    const sent = r.sentiment || {};
+    h += `<tr>`
+      + `<td class="clickable" data-inst="${r.instrument}">${r.instrument}<div class="muted small">${r.name || ""}</div></td>`
+      + `<td>${trkAccountTags(r.accounts)}</td>`
+      + `<td>${r.first_buy_date || "—"}</td>`
+      + `<td>${fmt(r.first_buy_price)}</td>`
+      + `<td>${r.current_price == null ? "—" : fmt(r.current_price)}<div class="muted small">${r.current_date || ""}</div></td>`
+      + `<td class="${cls(r.cum_ret)}">${r.cum_ret == null ? "—" : pct(r.cum_ret)}</td>`
+      + `<td class="neg">${r.min_close == null ? "—" : fmt(r.min_close)}<div class="muted small">${r.min_date || ""}</div></td>`
+      + `<td class="pos">${r.max_close == null ? "—" : fmt(r.max_close)}<div class="muted small">${r.max_date || ""}</div></td>`
+      + `<td class="${cls(r.max_dd)}">${r.max_dd == null ? "—" : pct(r.max_dd)}</td>`
+      + `<td>${r.still_held ? `<span class="badge done">持 ${r.net_shares}</span>` : '<span class="badge no_trade">清</span>'}</td>`
+      + trkFundflowCells(r.fundflow)
+      + `<td>${sent.sentiment ? trkSentBadge(sent.sentiment) : '<span class="muted">—</span>'}</td>`
+      + `<td>${trkSwingBadge(r.swing)}</td>`
+      + `<td>${trkResearchBadge(r.research)}</td>`
+      + `<td><button class="mini-btn" data-open="${r.instrument}">详情</button></td>`
+      + `</tr>`;
+  }
+  box.innerHTML = h + "</tbody></table>";
+  box.querySelectorAll("td.clickable").forEach(td =>
+    td.onclick = () => openTrkDetail(td.dataset.inst));
+  box.querySelectorAll("button[data-open]").forEach(b =>
+    b.onclick = () => openTrkDetail(b.dataset.open));
+}
+
+function renderTrkStats() {
+  const d = trkData;
+  if (!d || !d.total) {
+    document.getElementById("trk-stats").innerHTML = "";
+    return;
+  }
+  const rows = d.instruments || [];
+  const held = rows.filter(r => r.still_held).length;
+  const cov = d.coverage || {};
+  const withSent = cov.sentiment ?? rows.filter(r => r.sentiment).length;
+  const withSwing = cov.swing ?? rows.filter(r => r.swing).length;
+  const withRs = cov.research ?? rows.filter(r => r.research).length;
+  const withFf = cov.fundflow ?? rows.filter(r => r.fundflow).length;
+  const rets = rows.map(r => r.cum_ret).filter(x => x != null);
+  const avg = rets.length ? rets.reduce((a, b) => a + b, 0) / rets.length : null;
+  const nUp = rets.filter(x => x > 0).length;
+  const nDown = rets.filter(x => x < 0).length;
+  const cards = [
+    { l: "追踪标的", v: d.total, s: `行情 ${d.quote_ok_count} 成功` },
+    { l: "当前持仓", v: held, s: `${d.total - held} 已清仓` },
+    { l: "多 Agent 覆盖", v: `${withSent}/${withSwing}/${withRs}`, s: "舆情 / 短线 / 研究" },
+    { l: "资金流向", v: withFf, s: `覆盖 ${withFf}/${d.total} 只 · 当日东财`, vCls: withFf ? "" : "muted" },
+    { l: "平均涨跌", v: avg == null ? "—" : pct(avg), s: `红 ${nUp} / 绿 ${nDown}`, vCls: cls(avg) },
+  ].map(x => card(x.l, x.v, x.s, x.vCls || ""));
+  document.getElementById("trk-stats").innerHTML = cards.map(c => c.outerHTML).join("");
+}
+
+async function loadTracking(keepFilter = true) {
+  if (!keepFilter) {
+    document.getElementById("trk-filter").value = "";
+    document.getElementById("trk-only-held").checked = false;
+    document.getElementById("trk-only-sent").checked = false;
+  }
+  try {
+    const d = await getJSON("/api/tracking");
+    if (d.empty) {
+      document.getElementById("trk-stats").innerHTML = "";
+      document.getElementById("trk-list").innerHTML =
+        `<div class="empty">${d.message || "尚无追踪快照"}</div>`;
+      document.getElementById("trk-count").textContent = "—";
+      document.getElementById("trk-updated").textContent = "—";
+      return;
+    }
+    trkData = d;
+    document.getElementById("trk-updated").textContent =
+      `更新 ${d.updated_at || "—"} · 数据日 ${d.data_day || "—"}`;
+    renderTrkStats();
+    renderTrkList();
+    loadTrkAnalyzeHint();
+    if (await resumeTrkJobIfAny()) return;
+  } catch (e) {
+    console.error(e);
+    document.getElementById("trk-list").innerHTML =
+      '<div class="empty">追踪快照加载失败</div>';
+  }
+}
+
+function renderTrkNodes(box, nodes) {
+  if (!nodes || !nodes.length) { box.innerHTML = '<div class="empty">无</div>'; return; }
+  let h = "<table><thead><tr><th>日期</th><th>账户</th><th>价</th><th>股</th><th>额</th></tr></thead><tbody>";
+  for (const n of nodes) {
+    h += `<tr><td>${n.date}</td><td>${ACCOUNT_SHORT[n.account] || n.account}</td>`
+      + `<td>${fmt(n.price)}</td><td>${n.shares}</td><td>${fmt(n.amount)}</td></tr>`;
+  }
+  box.innerHTML = h + "</tbody></table>";
+}
+
+function renderTrkSentiment(box, sent) {
+  if (!sent) { box.innerHTML = '<div class="empty">无舆情报告</div>'; return; }
+  let h = "<table><thead><tr><th>报告日</th><th>情绪</th><th>分数</th><th>立场</th>"
+    + "<th>条目</th><th>标题</th></tr></thead><tbody>";
+  h += `<tr><td>${sent.latest_date || "—"}</td>`
+    + `<td>${trkSentBadge(sent.sentiment)}</td>`
+    + `<td>${sent.score == null ? "—" : Number(sent.score).toFixed(2)}</td>`
+    + `<td>${sent.stance || "—"}</td>`
+    + `<td>${sent.news_count ?? "—"}</td>`
+    + `<td style="text-align:left;white-space:normal;max-width:380px">${escapeHtml(sent.headline || "—")}</td></tr>`;
+  h += "</tbody></table>";
+  if (sent.risk_tags && sent.risk_tags.length) {
+    h += `<div class="sent-tags" style="margin-top:8px">${sent.risk_tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>`;
+  }
+  box.innerHTML = h;
+}
+
+const TRK_SWING_STATE = {
+  hit: "达标", stopped: "止损", expired: "到期", holding: "跟踪中",
+  triggered: "待入场", watch: "观察", invalid: "无效", reject: "否决",
+};
+const TRK_RS_DIR = { up: "看涨", down: "看跌", hold: "观望" };
+const TRK_RS_CONS = { agree: "一致", partial: "部分一致", disagree: "分歧" };
+const TRK_ANALYST = { market: "行情", news: "新闻", fundamentals: "基面", social: "舆情" };
+
+function trkSideClass(kind) {
+  if (kind === "up" || kind === "positive" || kind === "hit" || kind === "predict") return "pos";
+  if (kind === "down" || kind === "negative" || kind === "stopped" || kind === "reject") return "neg";
+  if (kind === "mixed") return "warn";
+  return "";
+}
+
+function trkAlignHint(r) {
+  const votes = [];
+  const s = (r.sentiment || {}).sentiment;
+  if (s === "positive") votes.push("多");
+  else if (s === "negative") votes.push("空");
+  else if (s === "mixed" || s === "neutral") votes.push("中");
+  const st = String((r.swing || {}).result || (r.swing || {}).state || "");
+  if (st === "hit" || st === "holding" || st === "triggered") votes.push("多");
+  else if (st === "stopped" || st === "reject") votes.push("空");
+  else if (r.swing) votes.push("中");
+  const d = (r.research || {}).merged_direction;
+  if (d === "up") votes.push("多");
+  else if (d === "down") votes.push("空");
+  else if (d === "hold") votes.push("中");
+  if (votes.length < 2) return "覆盖不足：有数据的路可参考，其余尚未分析";
+  const nBull = votes.filter(x => x === "多").length;
+  const nBear = votes.filter(x => x === "空").length;
+  if (nBull >= 2 && nBear === 0) return "三路偏多：舆情/短线/研究方向接近";
+  if (nBear >= 2 && nBull === 0) return "三路偏空：舆情/短线/研究方向接近";
+  if (nBull && nBear) return "三路分歧：多空并存，对照买卖节点看谁先对";
+  return "三路偏中性：观望为主";
+}
+
+function renderTrkAgents(r) {
+  const box = document.getElementById("trk-modal-agents");
+  if (!box) return;
+  const sent = r.sentiment;
+  const sw = r.swing;
+  const rs = r.research;
+  const sentVal = sent ? (sent.sentiment === "positive" ? "偏多"
+    : sent.sentiment === "negative" ? "偏空"
+    : sent.sentiment === "mixed" ? "交织" : "中性") : "未分析";
+  const sentSub = sent
+    ? `分数 ${sent.score == null ? "—" : Number(sent.score).toFixed(2)} · ${sent.latest_date || ""}`
+    : "catalog 无报告";
+  const swKey = sw ? String(sw.result || sw.state || "") : "";
+  const swVal = sw ? (TRK_SWING_STATE[swKey] || swKey) : "未分析";
+  let swSub = "tracker 无记录";
+  if (sw) {
+    const bits = [];
+    if (sw.confidence != null) bits.push(`置信 ${Number(sw.confidence).toFixed(2)}`);
+    if (sw.result_return != null) bits.push(`兑现 ${pct(sw.result_return)}`);
+    else if (sw.mfe != null) bits.push(`MFE ${pct(sw.mfe)}`);
+    if (sw.pred_date) bits.push(sw.pred_date);
+    swSub = bits.join(" · ");
+  }
+  const rsVal = rs ? (TRK_RS_DIR[rs.merged_direction] || rs.merged_direction || "—") : "未分析";
+  const rsSub = rs
+    ? `置信 ${rs.merged_confidence == null ? "—" : Number(rs.merged_confidence).toFixed(2)} · ${TRK_RS_CONS[rs.consensus] || rs.consensus || ""} · ${rs.date || ""}`
+    : "尚无研究报告";
+
+  let h = `<div class="trk-agent-grid">
+    <div class="trk-agent-card ${sent ? trkSideClass(sent.sentiment) : "empty"}">
+      <div class="lbl">舆情记忆</div>
+      <div class="val">${sentVal}</div>
+      <div class="sub">${sentSub}</div>
+    </div>
+    <div class="trk-agent-card ${sw ? trkSideClass(swKey) : "empty"}">
+      <div class="lbl">短线猎手</div>
+      <div class="val">${swVal}</div>
+      <div class="sub">${swSub}</div>
+    </div>
+    <div class="trk-agent-card ${rs ? trkSideClass(rs.merged_direction) : "empty"}">
+      <div class="lbl">研究分析</div>
+      <div class="val">${rsVal}</div>
+      <div class="sub">${rsSub}</div>
+    </div>
+  </div>
+  <div class="trk-align">${trkAlignHint(r)}</div>`;
+
+  if (sw) {
+    const cats = (sw.catalysts || []).map(c => `<span class="trk-chip">${escapeHtml(c)}</span>`).join("");
+    const reasons = (sw.reasons || []).map(x => `<li>${escapeHtml(x)}</li>`).join("")
+      || "<li class='empty'>无理由</li>";
+    const delta = sw.delta
+      ? `<p>${escapeHtml(sw.delta.date || "")} · ${escapeHtml(sw.delta.headline || "")}</p>`
+      : "";
+    h += `<details class="trk-fold"><summary>短线猎手辩论</summary>
+      <div class="trk-fold-body">
+        <div>${cats || '<span class="muted">无催化标签</span>'}</div>
+        <p class="kind">入场 ${sw.entry_date || "—"} @ ${sw.entry_price == null ? "—" : fmt(sw.entry_price)}
+          · 持有 ${sw.days_held ?? "—"} 日
+          · MAE ${sw.mae == null ? "—" : pct(sw.mae)}</p>
+        <ul>${reasons}</ul>${delta}
+      </div></details>`;
+  }
+  if (rs) {
+    const reasons = (rs.reasons_cn || []).map(x => `<li>${escapeHtml(x)}</li>`).join("");
+    const analysts = (rs.analysts || []).map(a => {
+      const kind = TRK_ANALYST[a.kind] || a.kind || "分析师";
+      return `<div class="kind">${kind}</div><p>${escapeHtml(a.brief || "—")}</p>`;
+    }).join("");
+    h += `<details class="trk-fold"><summary>研究分析裁决</summary>
+      <div class="trk-fold-body">
+        <p>${escapeHtml(rs.summary_cn || "—")}</p>
+        ${reasons ? `<ul>${reasons}</ul>` : ""}
+        ${rs.summary_en ? `<p class="kind">EN</p><p>${escapeHtml(rs.summary_en)}</p>` : ""}
+        ${analysts}
+      </div></details>`;
+  }
+  box.innerHTML = h;
+}
+
+async function openTrkDetail(instrument) {
+  const r = (trkData?.instruments || []).find(x => x.instrument === instrument);
+  if (!r) return;
+  trkModalInst = instrument;
+  const modal = document.getElementById("trk-modal");
+  modal.classList.remove("hidden");
+  document.getElementById("trk-modal-title").textContent =
+    `${r.name || instrument} · ${instrument}`;
+  document.getElementById("trk-modal-meta").textContent =
+    `账户 ${r.accounts.map(a => ACCOUNT_SHORT[a] || a).join(" / ")} · `
+    + `首买 ${r.first_buy_date} @ ${fmt(r.first_buy_price)} · `
+    + `最新 ${r.current_price == null ? "—" : fmt(r.current_price)} (${r.current_date || "—"}) · `
+    + `净仓 ${r.still_held ? r.net_shares + "股" : "已清仓"}`;
+
+  const stats = document.getElementById("trk-modal-stats");
+  stats.innerHTML = [
+    { l: "累计涨跌", v: r.cum_ret == null ? "—" : pct(r.cum_ret), c: cls(r.cum_ret), s: `首买→最新` },
+    { l: "区间最低", v: r.min_close == null ? "—" : fmt(r.min_close), c: "neg", s: r.min_date || "—" },
+    { l: "区间最高", v: r.max_close == null ? "—" : fmt(r.max_close), c: "pos", s: r.max_date || "—" },
+    { l: "最大回撤", v: r.max_dd == null ? "—" : pct(r.max_dd), c: cls(r.max_dd), s: "峰值→谷值" },
+  ].map(x => `<div class="sent-stat"><div class="label">${x.l}</div>`
+    + `<div class="value ${x.c}">${x.v}</div><div class="sub">${x.s}</div></div>`).join("");
+
+  const tags = document.getElementById("trk-modal-tags");
+  tags.innerHTML = trkAccountTags(r.accounts)
+    + (r.still_held ? `<span class="badge done">持仓 ${r.net_shares}</span>` : '<span class="badge no_trade">已清仓</span>');
+
+  renderTrkAgents(r);
+  renderTrkFundflow(document.getElementById("trk-modal-fundflow"), r.fundflow);
+  document.getElementById("trk-modal-ff-cap").textContent = r.fundflow
+    ? `数据日 ${r.fundflow.date || "当日"} · 东财 push2 · 单位亿`
+    : "暂无 · 重新构建后更新";
+  renderTrkNodes(document.getElementById("trk-modal-buys"), r.buy_nodes);
+  renderTrkNodes(document.getElementById("trk-modal-sells"), r.sell_nodes);
+  renderTrkSentiment(document.getElementById("trk-modal-sent"), r.sentiment);
+  document.getElementById("trk-modal-sent-cap").textContent =
+    r.sentiment ? `报告日 ${r.sentiment.latest_date || "—"}` : "无报告";
+
+  // 走势图 + 买卖节点标注
+  const canvas = document.getElementById("trkModalChart");
+  const series = r.series || [];
+  document.getElementById("trk-modal-cap").textContent = series.length
+    ? `日线累计% · ${series[0].date} → ${series[series.length - 1].date} · ${series.length} 根 · 标注买卖节点`
+    : "暂无行情";
+  if (!series.length) {
+    if (charts.trkModalChart) { charts.trkModalChart.destroy(); delete charts.trkModalChart; }
+    return;
+  }
+  const L = series.map(s => s.date);
+  const cum = series.map(s => s.cum);
+  const lastCum = lastNonNull(cum);
+  // 买卖节点：在 cum 序列里找对应日期的 index
+  const idxByDate = {};
+  L.forEach((d, i) => { idxByDate[d] = i; });
+  const buyPts = (r.buy_nodes || []).map(n => ({
+    x: n.date, y: cum[idxByDate[n.date]] ?? null,
+    label: `买 ${fmt(n.price)}`,
+  })).filter(p => p.y != null);
+  const sellPts = (r.sell_nodes || []).map(n => ({
+    x: n.date, y: cum[idxByDate[n.date]] ?? null,
+    label: `卖 ${fmt(n.price)}`,
+  })).filter(p => p.y != null);
+  setChartCopy(canvas, {
+    title: lastCum == null ? "自首买日起累计" : `窗口累计 ${pct(lastCum)}`,
+    sub: `${L[0]} → ${L[L.length - 1]} · 起点归零`,
+    src: "DAILY CLOSE · CUM % · BUY/SELL MARKS",
+  });
+  mkChart(canvas, {
+    type: "line",
+    data: {
+      labels: L,
+      datasets: [
+        lineDS("窗口累计%", cum, lastCum != null && lastCum < 0 ? COLORS.green : COLORS.red, true),
+        {
+          label: "买入",
+          data: buyPts.map(p => p.y),
+          borderColor: COLORS.green,
+          backgroundColor: COLORS.green,
+          pointRadius: 5, pointHoverRadius: 7,
+          showLine: false, pointStyle: "triangle",
+        },
+        {
+          label: "卖出",
+          data: sellPts.map(p => p.y),
+          borderColor: COLORS.red,
+          backgroundColor: COLORS.red,
+          pointRadius: 5, pointHoverRadius: 7,
+          showLine: false, pointStyle: "rectRot",
+        },
+      ],
+    },
+    options: {
+      ...baseOpts,
+      scales: { x: baseOpts.scales.x, y: baseOpts.scales.y },
+    },
+  });
+}
+
+document.getElementById("trk-refresh")?.addEventListener("click", () => loadTracking(false));
+document.getElementById("trk-filter")?.addEventListener("input", () => renderTrkList());
+document.getElementById("trk-only-held")?.addEventListener("change", () => renderTrkList());
+document.getElementById("trk-only-sent")?.addEventListener("change", () => renderTrkList());
+document.getElementById("trk-run")?.addEventListener("click", async () => {
+  if (!fullAccess) return;
+  try {
+    const r = await fetch("/api/tracking/run", { method: "POST" });
+    const j = await r.json();
+    if (j.busy) { renderTrkProgress(j.job || {}); startTrkJobPoll(); return; }
+    renderTrkProgress(j.job || {});
+    startTrkJobPoll();
+  } catch (e) { console.error(e); }
+});
+document.getElementById("trk-analyze")?.addEventListener("click", async () => {
+  if (!fullAccess) return;
+  const btn = document.getElementById("trk-analyze");
+  const n = Number(btn?.dataset.total || 0);
+  const labs = btn?.dataset.labels || "实盘线 + TA线";
+  const ok = window.confirm(
+    n
+      ? `将对「${labs}」当前持仓共 ${n} 只跑舆情、研究分析、短线猎手。\n研究较慢，大约每只 5–8 分钟。确定开始？`
+      : "实盘线 + TA线当前无持仓，无法跑分析。"
+  );
+  if (!ok || !n) return;
+  try {
+    const r = await fetch("/api/tracking/analyze", { method: "POST" });
+    const j = await r.json();
+    if (!j.ok && j.message) { alert(j.message); return; }
+    renderTrkProgress(j.job || {});
+    startTrkJobPoll();
+  } catch (e) { console.error(e); }
+});
+document.getElementById("trk-modal-close")?.addEventListener("click", () => {
+  document.getElementById("trk-modal").classList.add("hidden");
+  if (charts.trkModalChart) { charts.trkModalChart.destroy(); delete charts.trkModalChart; }
 });
 
 // ----------------- 研究分析 -----------------
@@ -2420,17 +3008,22 @@ function boardGradeBadge(g) {
 }
 
 async function loadBoard() {
-  // 1) 快照日期下拉（仅首次）
-  if (!boardDaysLoaded) {
-    try {
-      const dd = await getJSON("/api/board/days");
-      const sel = document.getElementById("board-day");
+  // 1) 快照日期下拉（首次或最新日变化时刷新）
+  try {
+    const dd = await getJSON("/api/board/days");
+    const sel = document.getElementById("board-day");
+    const latest = dd.days[0] || null;
+    if (!boardDaysLoaded || sel.dataset.latest !== latest) {
       sel.innerHTML = dd.days.map(d => `<option value="${d}">${d}</option>`).join("");
-      if (dd.days.length) sel.value = dd.days[0];
+      if (latest) {
+        sel.value = latest;
+        boardDay = latest;
+        sel.dataset.latest = latest;
+      }
       sel.onchange = () => { boardDay = sel.value; loadBoardData(); };
       boardDaysLoaded = true;
-    } catch (e) { console.error(e); }
-  }
+    }
+  } catch (e) { console.error(e); }
   await loadBoardData();
 }
 
@@ -2454,7 +3047,7 @@ async function loadBoardData() {
     return;
   }
   jobEl.textContent = ov.job && ov.job.status === "running" ? "后台生成中…" : "";
-  meta.textContent = `数据日 ${ov.day} | 池内 ${ov.pool?.size ?? "-"} 只 | 生成于 ${ov.generated || "-"}` +
+  meta.textContent = `盘后 ${ov.day} | 池内 ${ov.pool?.size ?? "-"} 只 | 生成于 ${ov.generated || "-"}` +
     (ov.status === "partial" ? ` | ⚠ 部分模块失败 ${ov.errors.length}` : "");
 
   renderBoardPanorama(ov);
@@ -2464,11 +3057,7 @@ async function loadBoardData() {
   renderBoardThemes(thm, rot);
   renderBoardNews(nw);
 
-  // 已有盘中快照则显示徽章（不自动覆盖盘后图表）
-  try {
-    const intra = await getJSON("/api/board/intraday");
-    if (intra.available) showIntradayBadge(intra);
-  } catch (e) { /* 无盘中快照时静默 */ }
+  await applyBoardIntraday();
 }
 
 function tempTone(temp) {
@@ -2694,16 +3283,18 @@ function renderBoardLadder(lad) {
 
 // ---- 涨停复盘：封单散点图 + 预警 + 明细 ----
 async function renderBoardLimit(lad) {
-  const scatter = await getJSON("/api/board/limit-scatter");
+  const qs = boardDay ? `?day=${boardDay}` : "";
+  const scatter = await getJSON("/api/board/limit-scatter" + qs);
   if (!scatter.available) {
     document.getElementById("board-limit-detail").innerHTML =
       `<div class="empty">${scatter.disclaimer || "无数据"}</div>`;
     return;
   }
   const modeEl = document.getElementById("board-scatter-mode");
+  modeEl.classList.remove("hidden");
   modeEl.textContent = scatter.mode === "intraday"
-    ? `（盘中实时 ${scatter.generated || ""}）`
-    : `（盘后口径 ${scatter.generated || ""}，点「刷新行情」看封单）`;
+    ? `盘中实时 ${scatter.generated || ""}`
+    : `盘后口径 ${scatter.generated || ""} · 点「刷新行情」看封单`;
 
   const pts = scatter.scatter || [];
   const canvas = document.getElementById("boardScatterChart");
@@ -2795,7 +3386,9 @@ async function renderBoardLimit(lad) {
     const intra = await getJSON("/api/board/intraday");
     renderTable(document.getElementById("board-limit-detail"),
       ((intra.limit_ups) || []).map(r => ({
-        ...r, sealed_ratio_pct: r.sealed_ratio != null ? +(r.sealed_ratio * 100).toFixed(2) : null,
+        ...r,
+        sealed_yi: r.sealed_amt != null ? +(r.sealed_amt / 1e8).toFixed(2) : r.sealed_yi,
+        sealed_ratio_pct: r.sealed_ratio != null ? +(r.sealed_ratio * 100).toFixed(2) : null,
       })),
       [["instrument", "代码"], ["name", "名称"], ["industry", "行业"], ["streak", "连板"],
        ["chg_pct", "涨幅%"], ["sealed_yi", "封单(亿)"], ["sealed_ratio_pct", "封单/流通%"],
@@ -2866,6 +3459,26 @@ function closeBoardCard() {
 }
 document.getElementById("board-drawer-close")?.addEventListener("click", closeBoardCard);
 
+function viewingLatestBoardDay() {
+  const sel = document.getElementById("board-day");
+  return !boardDay || !sel?.dataset.latest || boardDay === sel.dataset.latest;
+}
+
+async function applyBoardIntraday() {
+  const badgeEl = document.getElementById("board-intraday-badge");
+  try {
+    const intra = await getJSON("/api/board/intraday");
+    if (!intra.available || !viewingLatestBoardDay()) {
+      badgeEl.classList.add("hidden");
+      return;
+    }
+    showIntradayBadge(intra);
+    renderBoardPanoramaIntraday(intra);
+  } catch (e) {
+    badgeEl.classList.add("hidden");
+  }
+}
+
 // ---- 刷新行情（盘中实时） ----
 document.getElementById("board-refresh")?.addEventListener("click", async () => {
   try {
@@ -2879,9 +3492,10 @@ document.getElementById("board-refresh")?.addEventListener("click", async () => 
       if (d.job && d.job.status !== "running") {
         clearInterval(timer);
         jobEl.textContent = d.job.message || "完成";
-        if (d.available) {
+        if (d.available && viewingLatestBoardDay()) {
           showIntradayBadge(d);
-          renderBoardLimit(await getJSON("/api/board/ladder"));
+          const qs = boardDay ? `?day=${boardDay}` : "";
+          renderBoardLimit(await getJSON("/api/board/ladder" + qs));
           renderBoardPanoramaIntraday(d);
         }
       }
@@ -2892,10 +3506,15 @@ document.getElementById("board-refresh")?.addEventListener("click", async () => 
 function showIntradayBadge(d) {
   const el = document.getElementById("board-intraday-badge");
   el.classList.remove("hidden");
-  el.textContent = `实时行情 ${d.generated || ""} · 报价 ${d.quotes_ok}/${d.quotes_total} 只 · 盘后快照 ${d.snapshot_day || "-"}`;
+  const ts = d.generated || d.session_day || "";
+  el.textContent = `实时行情 ${ts} · 报价 ${d.quotes_ok}/${d.quotes_total} 只 · 盘后快照 ${d.snapshot_day || "-"}`;
+  const meta = document.getElementById("board-meta");
+  if (meta && d.session_day && !meta.textContent.includes("盘中")) {
+    meta.textContent += ` | 盘中 ${d.generated || d.session_day}`;
+  }
 }
 
-// 盘中刷新后同步全景温度计（叠加实时角标，不覆盖盘后历史曲线）
+// 盘中刷新后同步全景温度计/涨跌榜（不覆盖盘后历史曲线）
 function renderBoardPanoramaIntraday(d) {
   const t = d.thermometer || {};
   renderThermoBlock(document.getElementById("board-thermo"), {
@@ -2904,14 +3523,10 @@ function renderBoardPanoramaIntraday(d) {
     t,
     live: true,
   });
-  // 涨跌榜换实时
-  getJSON("/api/board/intraday").then(intra => {
-    if (!intra.available) return;
-    const cols = [["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
-                  ["chg_pct", "涨幅%"], ["vol_ratio", "量比"], ["turnover_pct", "换手%"]];
-    renderTable(document.getElementById("board-gainers"), intra.gainers || [], cols, "无数据", "instrument");
-    renderTable(document.getElementById("board-losers"), intra.losers || [], cols, "无数据", "instrument");
-  });
+  const cols = [["instrument", "代码"], ["name", "名称"], ["industry", "行业"],
+                ["chg_pct", "涨幅%"], ["vol_ratio", "量比"], ["turnover_pct", "换手%"]];
+  renderTable(document.getElementById("board-gainers"), d.gainers || [], cols, "无数据", "instrument");
+  renderTable(document.getElementById("board-losers"), d.losers || [], cols, "无数据", "instrument");
 }
 
 // ---- 题材轮动 ----
@@ -3075,6 +3690,7 @@ async function loadTab(tab) {
   try {
     if (tab === "overview") await loadOverview();
     else if (tab === "daily-ops") await loadDailyOps();
+    else if (tab === "tracking") await loadTracking();
     else if (tab === "board") await loadBoard();
     else if (tab === "sentiment") await loadSentiment(true);
     else if (tab === "swing") await loadSwing();
@@ -3107,4 +3723,5 @@ setInterval(() => {
   const tab = document.querySelector(".tab.active").dataset.tab;
   if (tab === "overview") loadOverview();
   else if (tab === "daily-ops") loadDailyOps();
+  else if (tab === "board") applyBoardIntraday();
 }, 60000);

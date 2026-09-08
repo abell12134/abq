@@ -96,3 +96,13 @@ def load_intraday() -> dict[str, Any] | None:
         return json.loads(path.read_text())
     except json.JSONDecodeError:
         return None
+
+
+def intraday_is_fresh(data: dict[str, Any] | None, *, session_day: str | None = None) -> bool:
+    """盘中快照是否仍属当日会话（跨日则视为过期，避免展示旧实时徽章）。"""
+    if not data or not data.get("ok"):
+        return False
+    today = session_day or datetime.now(TZ).strftime("%Y-%m-%d")
+    if data.get("session_day"):
+        return data["session_day"] == today
+    return (data.get("generated") or "")[:10] == today

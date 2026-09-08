@@ -2,6 +2,7 @@
 
 - Web 看板（默认 0.0.0.0:8000）：多账户净值/超额、持仓、成交、对账、研究vs实盘对比、告警。
 - 内置定时（Asia/Shanghai，工作日）：
+    10:00 board      大盘看板盘中分析（批量实时报价 → intraday 快照）
     22:30 evening   各账户生成次日调仓清单（含 UMP；影子 TA 线额外跑定性否决）
     23:30 postclose 各账户按 mode 处理成交（simulated→自动模拟；manual→读人工回填）→对账→净值→日报
     周五 23:45 研究 vs 实盘双线复盘
@@ -526,6 +527,11 @@ def _run_daily(stage: str, account: str, ump: bool = True) -> None:
 def job_evening() -> None:
     for a in ACCOUNTS:
         _run_daily("evening", a, ump=True)
+    # evening 在子进程里 dump 了新日历；父进程必须 reset，否则顶栏「数据日」停在启动时点。
+    try:
+        C.reset_qlib()
+    except Exception:
+        pass
 
 
 def job_postclose() -> None:
@@ -538,6 +544,44 @@ def job_review() -> None:
     with log.open("a") as fh:
         subprocess.run([PY, str(REVIEW), "--research", RESEARCH, "--live", LIVE],
                        stdout=fh, stderr=subprocess.STDOUT)
+
+
+def job_board_morning() -> None:
+    """工作日 10:00 自动拉取池内实时报价，更新大盘看板盘中分析。
+
+    不能用 qlib 日历判断「今天是否交易日」：日历只有已收盘日，10:00 当天必然不在里面，
+    会把每个交易日早上都跳过。周末由 CronTrigger(mon-fri) 过滤；节假日用报价
+    quote_time 写入 session_day，非当日则前端按过期隐藏。
+    """
+    started = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+    log = LOG_DIR / f"board_morning_{datetime.now():%Y-%m-%d}.log"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _write_board_refresh_job({"status": "running", "started": started,
+                              "message": "10:00 自动拉取池内实时报价…", "pct": 20})
+    with log.open("a", encoding="utf-8") as fh:
+        fh.write(f"\n=== {started} board intraday refresh ===\n")
+        fh.flush()
+        try:
+            from overlays.market_board import intraday as board_intraday
+            payload = board_intraday.build_intraday()
+            ok = bool(payload.get("ok"))
+            msg = (f"已刷新 {payload.get('quotes_ok')}/{payload.get('quotes_total')} 只"
+                   if ok else payload.get("error", "刷新失败"))
+            fh.write(f"ok={ok} {msg} session={payload.get('session_day')}\n")
+            _write_board_refresh_job({
+                "status": "ok" if ok else "error",
+                "started": started,
+                "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                "message": f"10:00 自动 · {msg}",
+                "pct": 100,
+            })
+        except Exception as exc:  # noqa: BLE001
+            fh.write(f"ERROR: {exc}\n")
+            _write_board_refresh_job({
+                "status": "error", "started": started,
+                "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                "message": str(exc), "pct": 100,
+            })
 
 
 _scheduler = None
@@ -569,7 +613,10 @@ async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
     _scheduler = BackgroundScheduler(timezone=TZ)
-    # 工作日 22:30 出次日清单；23:30 收盘后对账/净值；周五 23:45 双线复盘
+    # 工作日 10:00 大盘盘中分析；22:30 出次日清单；23:30 收盘后对账/净值；周五 23:45 双线复盘
+    _scheduler.add_job(job_board_morning, CronTrigger(day_of_week="mon-fri", hour=10, minute=0,
+                                                      timezone=TZ), id="board_morning",
+                       replace_existing=True)
     _scheduler.add_job(job_evening, CronTrigger(day_of_week="mon-fri", hour=22, minute=30,
                                                 timezone=TZ), id="evening", replace_existing=True)
     _scheduler.add_job(job_postclose, CronTrigger(day_of_week="mon-fri", hour=23, minute=30,
@@ -1206,11 +1253,17 @@ def api_sentiment_instrument(instrument: str, days: int = 90):
 def api_sentiment_run(request: Request,
                       account: str = "live_manual_10k",
                       dry_run: bool = False,
-                      instrument: str | None = None):
+                      instrument: str | None = None,
+                      limit: int | None = None,
+                      all_traded: bool = False,
+                      only_new: bool = False):
     """手动触发舆情记忆分析（后台线程）。
 
     - 不传 instrument：分析账户持仓/订单/已跟踪标的
     - 传 instrument：只分析该票（支持 600000 / SH600000）
+    - 传 limit：本次最多分析 N 只（优先未分析/报告最旧）
+    - all_traded：聚合四账户 fills 作为宇宙（与持仓追踪页同口径）
+    - only_new：只跑尚无报告的票
     """
     _require_full_access(request)
     sys.path.insert(0, str(QUANT))
@@ -1245,8 +1298,14 @@ def api_sentiment_run(request: Request,
            "--lookback", "90", "--force-llm", "peak"]
     if inst:
         cmd += ["--instruments", inst]
+    elif all_traded:
+        cmd += ["--all-traded"]
     else:
         cmd += ["--account", account]
+    if only_new:
+        cmd.append("--only-new")
+    if limit and limit > 0:
+        cmd += ["--limit", str(int(limit))]
     if dry_run:
         cmd.append("--dry-run")
 
@@ -1301,6 +1360,135 @@ def _sentiment_peak_now() -> bool:
         return bool(is_peak_hour())
     except Exception:
         return False
+
+
+# ----------------- 持仓追踪（自首次买入日起的价格走势 + 舆情） -----------------
+
+@app.get("/api/tracking")
+def api_tracking():
+    """持仓追踪快照：聚合各账户 fills，自首次买入日起追踪价格走势。
+
+    排序：跌→涨（cum_ret 升序）。每条含买卖节点、涨跌区间、舆情摘要。
+    快照由 /api/tracking/run 后台构建，落 data/overlays/tracking/snapshot.json。
+    """
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking import store as TK  # noqa: WPS433
+    snap = TK.load_snapshot()
+    if not snap:
+        return {"empty": True, "total": 0, "instruments": [],
+                "message": "尚无追踪快照，点击「重新构建」生成"}
+    snap["empty"] = False
+    return snap
+
+
+@app.get("/api/tracking/job")
+def api_tracking_job():
+    """当前/最近一次追踪快照构建任务进度（供进度条与刷新恢复）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking import store as TK  # noqa: WPS433
+    return TK.read_job()
+
+
+@app.post("/api/tracking/run")
+def api_tracking_run(request: Request):
+    """手动触发追踪快照构建（后台线程）。聚合 fills + 拉行情 + 附舆情。"""
+    _require_full_access(request)
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking import store as TK  # noqa: WPS433
+    from overlays.tracking import build as TB  # noqa: WPS433
+
+    running = TK.read_job()
+    if running.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": running}
+    if TK.read_analyze_job().get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True,
+                "job": TK.read_analyze_job(),
+                "message": "持仓分析正在跑，稍后再构建快照"}
+
+    TK.start_job()
+
+    def _bg():
+        try:
+            TB.build_and_save(progress=True)
+        except Exception as e:  # noqa: BLE001
+            TK.finish_job(ok=False, message=f"追踪快照失败: {e}"[:200])
+
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "busy": False, "job": TK.read_job()}
+
+
+@app.get("/api/tracking/analyze/universe")
+def api_tracking_analyze_universe():
+    """实盘线 + TA线当前持仓宇宙（跑分析按钮预览）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking.run_analyze import load_holdings_universe  # noqa: WPS433
+    uni = load_holdings_universe()
+    return {
+        "accounts": uni["accounts"],
+        "account_labels": uni["account_labels"],
+        "total": uni["total"],
+        "items": uni["items"],
+    }
+
+
+@app.get("/api/tracking/analyze/job")
+def api_tracking_analyze_job():
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking import store as TK  # noqa: WPS433
+    return TK.read_analyze_job()
+
+
+@app.post("/api/tracking/analyze")
+def api_tracking_analyze(request: Request, dry_run: bool = False):
+    """对实盘线 + TA线当前持仓串行跑舆情 / 研究 / 短线。"""
+    _require_full_access(request)
+    sys.path.insert(0, str(QUANT))
+    from overlays.tracking import store as TK  # noqa: WPS433
+    from overlays.tracking.run_analyze import (  # noqa: WPS433
+        _llm_busy_reason, load_holdings_universe, run as run_analyze,
+    )
+
+    running = TK.read_analyze_job()
+    if running.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": running}
+    snap_job = TK.read_job()
+    if snap_job.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": snap_job,
+                "message": "追踪快照正在构建，稍后再跑分析"}
+    busy = _llm_busy_reason()
+    if busy:
+        return {"ok": False, "queued": False, "busy": True, "message": busy,
+                "job": running}
+
+    uni = load_holdings_universe()
+    if not uni["total"]:
+        return {"ok": False, "queued": False, "busy": False,
+                "message": "实盘线 + TA线当前无持仓", "total": 0}
+
+    names = {it["instrument"]: it.get("name") or "" for it in uni["items"]}
+    job = TK.start_analyze_job(
+        accounts=uni["accounts"], instruments=uni["instruments"], names=names)
+    log = LOG_DIR / f"tracking_analyze_{datetime.now():%Y-%m-%d}.log"
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _bg():
+        with log.open("a") as fh:
+            fh.write(f"\n=== {datetime.now():%F %T} analyze "
+                     f"{uni['total']} {','.join(uni['instruments'])} ===\n")
+            fh.flush()
+            try:
+                out = run_analyze(dry_run=dry_run, force_llm="peak",
+                                  progress=True, start_job=False)
+                fh.write(f"[result] {out}\n")
+            except Exception as e:  # noqa: BLE001
+                fh.write(f"[job-error] {e}\n")
+                TK.finish_analyze_job(ok=False, message=f"持仓分析失败: {e}"[:200])
+
+    threading.Thread(target=_bg, daemon=True).start()
+    return {
+        "ok": True, "queued": True, "busy": False, "job": job,
+        "total": uni["total"], "items": uni["items"], "log": str(log),
+    }
 
 
 # ----------------- 短线猎手（纯看板建议层） -----------------
@@ -1925,6 +2113,14 @@ def api_board_intraday():
     if not data:
         return {"ok": True, "available": False,
                 "disclaimer": "尚无盘中快照。点「刷新行情」拉取实时报价（约10秒）。"}
+    if not board_store.intraday_is_fresh(data):
+        snap_day, _ = board_store.load_latest_daily()
+        return {
+            "ok": True, "available": False, "stale": True,
+            "generated": data.get("generated"), "snapshot_day": snap_day,
+            "disclaimer": "盘中快照已过期（非当日）。点「刷新行情」或等 10:00 自动刷新。",
+            "job": _read_board_refresh_job(),
+        }
     return {"ok": True, "available": True, **data, "job": _read_board_refresh_job()}
 
 
@@ -1966,16 +2162,19 @@ def api_board_refresh(request: Request):
 
 
 @app.get("/api/board/limit-scatter")
-def api_board_limit_scatter():
-    """封单强度散点图数据：优先盘中实时，无盘中快照时回退盘后收盘口径。"""
-    intra = board_store.load_intraday()
-    if intra and intra.get("ok") and intra.get("scatter"):
-        return {"ok": True, "available": True, "mode": "intraday",
-                "generated": intra.get("generated"),
-                "scatter": intra.get("scatter") or [],
-                "warn_near_limit": intra.get("warn_near_limit") or [],
-                "thermometer": intra.get("thermometer") or {}}
-    _, snap = board_store.load_latest_daily()
+def api_board_limit_scatter(day: str | None = None):
+    """封单强度散点图：看最新盘后日（或未指定日）时优先盘中；历史日强制盘后口径。"""
+    latest_d, _ = board_store.load_latest_daily()
+    use_live = (not day) or (latest_d and day == latest_d)
+    if use_live:
+        intra = board_store.load_intraday()
+        if intra and board_store.intraday_is_fresh(intra) and intra.get("ok") and intra.get("scatter"):
+            return {"ok": True, "available": True, "mode": "intraday",
+                    "generated": intra.get("generated"),
+                    "scatter": intra.get("scatter") or [],
+                    "warn_near_limit": intra.get("warn_near_limit") or [],
+                    "thermometer": intra.get("thermometer") or {}}
+    _, snap = _board_payload(day)
     if not snap:
         return {"ok": True, "available": False,
                 "disclaimer": "无盘后/盘中数据。先生成快照或刷新行情。"}

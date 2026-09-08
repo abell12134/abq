@@ -584,7 +584,7 @@ tr.grade-S td { background: #e5534b11; }
 tr.grade-A td { background: #d2992208; }
 
 /* ---------------- 大盘看板 P2：散点图 / 抽屉评分卡 ---------------- */
-.board-intraday-badge {
+#board-scatter-mode { display: inline-block; margin-left: 8px; font-size: 12px; }
   background: #d2992222; border: 1px solid #d2992255; color: #d29922;
   border-radius: 6px; padding: 5px 12px; font-size: 12px; margin-bottom: 10px;
   display: inline-block;
@@ -645,3 +645,68 @@ tr.grade-A td { background: #d2992208; }
   color: #d29922; font-style: normal; font-size: 11px; font-weight: 700;
   cursor: help;
 }
+
+/* ---------------- 持仓追踪 ---------------- */
+.trk-toolbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 10px 0 8px;
+}
+.trk-toolbar input[type="text"] {
+  background: var(--btn-sec); border: 1px solid var(--line); color: var(--text);
+  border-radius: 6px; padding: 6px 10px; font-size: 13px; width: 220px;
+}
+.trk-check { font-size: 13px; color: var(--muted); display: inline-flex; gap: 5px; align-items: center; }
+.trk-list .trk-table { width: 100%; }
+.trk-list table th, .trk-list table td { font-size: 12.5px; padding: 6px 8px; }
+.trk-list table td.clickable:hover { color: var(--accent); }
+.trk-modal-box { max-width: 960px; }
+.trk-modal-box .sm-meta { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+.small { font-size: 11px; }
+.trk-agents { margin: 12px 0 16px; }
+.trk-agent-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+  margin-bottom: 10px;
+}
+@media (max-width: 720px) { .trk-agent-grid { grid-template-columns: 1fr; } }
+.trk-agent-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; min-width: 0;
+}
+.trk-agent-card .lbl { font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.trk-agent-card .val { font-size: 20px; font-weight: 700; margin: 4px 0 2px; }
+.trk-agent-card .sub { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.trk-agent-card.empty { opacity: .55; }
+.trk-agent-card.pos .val { color: var(--red, #e5534b); }
+.trk-agent-card.neg .val { color: var(--green, #2ea043); }
+.trk-agent-card.warn .val { color: #d4a017; }
+.trk-align {
+  font-size: 12.5px; color: var(--muted); margin: 0 0 10px;
+  padding: 6px 10px; background: var(--inset); border-radius: 6px;
+}
+.trk-fold { margin-top: 8px; }
+.trk-fold summary {
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text);
+  list-style: none; padding: 8px 0;
+}
+.trk-fold summary::-webkit-details-marker { display: none; }
+.trk-fold summary::before { content: "▸ "; color: var(--muted); }
+.trk-fold[open] summary::before { content: "▾ "; }
+.trk-fold-body { font-size: 13px; line-height: 1.65; color: #c7d0db; }
+.trk-fold-body ul { margin: 4px 0 8px; padding-left: 18px; }
+.trk-fold-body .kind { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.trk-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  background: var(--inset); margin-right: 4px; }
+.trk-ff-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px;
+}
+@media (max-width: 720px) { .trk-ff-grid { grid-template-columns: 1fr; } }
+.trk-ff-card {
+  background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px;
+}
+.trk-ff-card .lbl { font-size: 11px; color: var(--muted); }
+.trk-ff-card .val { font-size: 18px; font-weight: 700; margin: 4px 0; }
+.trk-ff-card .sub { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.trk-ff-card .val.pos { color: var(--red, #e5534b); }
+.trk-ff-card .val.neg { color: var(--green, #2ea043); }
+.trk-ff-hist { margin-top: 8px; }
