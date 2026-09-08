@@ -15,7 +15,7 @@
 |---|---|
 | 池子真相源 | `workflow_baseline_planC.yaml` 对应的生产信号池（`market: csi500`，`data/signals/YYYY-MM-DD.csv` 实际约 499 只） |
 | 前端落点 | 现有运维看板 `webapp`（:8000）新增一级 tab「大盘看板」，内部 6 个子页签；Chart.js 4.4 + 原生 JS，风格与现有看板一致 |
-| 盘中实时性 | **手动刷新**（「刷新行情」按钮拉一次批量报价），不做自动轮询 |
+| 盘中实时性 | **工作日 10:00 自动**拉一次池内批量报价（APScheduler `board_morning`）+ 看板「刷新行情」手动；停留在大盘 tab 且看最新盘后日时每 60s 只刷新盘中叠加（不重拉盘后曲线） |
 | 附带修复 | 现有「市场热度」生成端 `research/sector_pulse.py` 仓库中缺失（仅消费端存在，点击必然报错）；本模块 P3 的 `themes.py` 产出兼容 `/api/market/pulse` 字段格式，顺手补全，不另起两套热度数据 |
 
 ---
@@ -45,13 +45,13 @@ market_board:
 ## 3. 页面信息架构（一级 tab + 6 子页签）
 
 ```
-一级导航: 总览 | 账户×4 | 对比 | 操作清单 | 大盘看板★ | 舆情 | 短线 | 研究 | 告警
+一级导航: 总览 | 账户×4 | 对比 | 操作清单 | 持仓追踪 | 大盘看板★ | 舆情 | 短线 | 研究 | 告警
 子页签:   [全景] [涨停复盘] [连板梯队] [题材轮动] [强势资金] [快讯]
 全局状态条(所有子页共享): 盘后快照日期▾ | [刷新行情] | 数据源/时间戳 | 池规模
 ```
 
 设计要点：每页**视觉主角唯一**；盘后快照 JSON 一次加载、切子页不重取；
-仅点「刷新行情」走实时批量报价。
+盘中由 10:00 定时或「刷新行情」写入 `intraday/latest.json`。看**最新盘后日**时全景温度计/涨跌榜叠盘中口径；切历史日保持盘后、不叠实时。
 
 ### 3.1 全景（需求 1、2、4-指数环境）
 
@@ -109,8 +109,10 @@ rotation.py      # 板块轮动矩阵（池内按行业聚合历史涨跌）
 strong.py        # 强势个股五维评分 + S/A/B/C 分级
 fundflow.py      # 资金流向榜（东财 push2 / akshare stock_individual_fund_flow）
 news.py          # 快讯流（读 sentiment_memory raw + 池内过滤）
+intraday.py      # 盘中快照：腾讯批量报价 + 盘后连板合并 → latest.json
+stock_card.py    # 单票五维评分卡（散点/榜单抽屉）
 run_board.py     # 盘后全量快照编排（evening 接入，fail-open）
-store.py         # JSON 契约读写 + .done 标记
+store.py         # JSON 契约读写 + .done 标记 + `intraday_is_fresh`（按 session_day）
 ```
 
 ## 5. 数据契约
@@ -120,7 +122,7 @@ data/overlays/market_board/
 ├── pool_snapshot.json        # 池子构成 + 生成日
 ├── daily/YYYY-MM-DD.json     # 盘后全量快照：温度计/周期/梯队/题材/强势/资金
 ├── daily/YYYY-MM-DD.done
-├── intraday/latest.json      # 盘中实时快照（手动刷新时写入）
+├── intraday/latest.json      # 盘中快照（10:00 自动或手动刷新；含 session_day）
 └── unlock_cache.json         # 解禁缓存（周刷）
 ```
 
@@ -128,9 +130,11 @@ data/overlays/market_board/
 
 | 路由 | 功能 | 需求 |
 |---|---|---|
+| `GET /api/board/days` | 可用盘后快照日期 | — |
 | `GET /api/board/overview` | 温度计 + 涨跌榜 + 周期定位 + 指数环境 | 1/2/4 |
 | `GET /api/board/cycle` | 15 日情绪曲线 + 30 日周期明细 | 2 |
-| `GET /api/board/limit-scatter` | 封单散点图数据 + 涨停预警列表 | 3 |
+| `GET /api/board/intraday` | 当日盘中快照；跨日则 `available=false, stale=true` | 1/3 |
+| `GET /api/board/limit-scatter` | 封单散点 + 预警；看最新日优先盘中，`?day=` 历史日强制盘后 | 3 |
 | `GET /api/board/stock/{instrument}` | 单票五维评分卡 + 分级 | 3 |
 | `GET /api/board/ladder` | 梯队 + 抢筹 + 解禁 + 存活率 | 4 |
 | `GET /api/board/themes` | 题材热度 + 涨停类型 + 行业分布 | 5 |
@@ -139,7 +143,7 @@ data/overlays/market_board/
 | `GET /api/board/fundflow` | 资金流向榜 | 8 |
 | `GET /api/board/news` | 快讯流（池内命中高亮） | 9 |
 | `POST /api/board/run` | 手动重跑盘后快照（后台 job + 进度轮询） | — |
-| `POST /api/board/refresh` | 盘中实时批量报价刷新（写 intraday/latest.json） | 1/3 |
+| `POST /api/board/refresh` | 盘中实时批量报价刷新（写 `intraday/latest.json`） | 1/3 |
 
 ## 7. 核心算法口径
 
@@ -164,17 +168,21 @@ data/overlays/market_board/
 
 | 时段 | 动作 |
 |---|---|
-| 盘中 | 看板「刷新行情」→ 腾讯批量报价 → `intraday/latest.json`（温度计/榜单/散点/预警实时化） |
-| 盘后 | `run_daily` evening 末端追加 `run_board.py`（fail-open，失败不阻断主线）→ `daily/<day>.json` |
-| 每周末 | 解禁缓存、概念板块成分缓存刷新 |
+| 工作日 10:00 | APScheduler `board_morning`：`intraday.build_intraday()` → `intraday/latest.json`。**不要用 qlib 日历判断「今天是否交易日」**——日历只有已收盘日，10:00 当天必然不在里面，会把每个交易日早上都跳过。周末由 `CronTrigger(mon-fri)` 过滤；节假日用报价 `quote_time` 写入 `session_day`，非当日则 `/api/board/intraday` 标 `stale`、前端隐藏实时徽章。 |
+| 盘中停留 | 大盘 tab 看最新盘后日时每 60s 只刷新盘中叠加（温度计/涨跌榜/徽章） |
+| 手动 | 看板「刷新行情」→ 同上 `build_intraday`（约 10s） |
+| 盘后 | `run_daily` evening 末端追加 `run_board.py`（fail-open）→ `daily/<day>.json`；evening 全部账户跑完后 webapp 进程 `C.reset_qlib()`，顶栏「数据日」跟到最新收盘日 |
+| 不跑常驻 webapp | `ops/crontab.example` 备选一行（须 `cd $QUANT`），与 APScheduler **二选一** |
+
+重启看板服务后调度才生效：`bash webapp/serve.sh restart`。告警/调度页可见 `board_morning` 下次运行时间。
 
 ## 9. 数据源矩阵
 
 | 需求 | 源 | 频次 |
 |---|---|---|
-| 池内批量行情/涨跌停 | 腾讯 `qt.gtimg.cn` 批量（60 只/批） | 手动刷新 |
+| 池内批量行情/涨跌停 | 腾讯 `qt.gtimg.cn` 批量（60 只/批） | 工作日 10:00 + 手动刷新 |
 | 涨停/连板/炸板历史 | 本地 qlib 日线 | 盘后 |
-| 封单额 | 腾讯盘口（买一量价）/ 东财 push2 兜底 | 手动刷新 |
+| 封单额 | 腾讯盘口（买一量价）/ 东财 push2 兜底 | 工作日 10:00 + 手动刷新 |
 | 解禁 | akshare 东财解禁接口 | 周缓存 |
 | 资金流向 | 东财 push2 / akshare 个股资金流 | 盘后+刷新 |
 | 题材/概念 | 东财概念板块（akshare `stock_board_concept_*`） | 日缓存 |
@@ -226,3 +234,10 @@ data/overlays/market_board/
   chg_5d/chg_20d），旧「市场热度」看板功能恢复可用。
 - API 新增：`GET /api/board/{themes,rotation,fundflow,news,unlock}`。
 - 全量快照耗时约 60~100s（含解禁/题材/资金流外网调用），evening 定时无压力。
+
+### 盘中定时与日期（2026-09-08）
+
+- 快照写入 `session_day`（优先报价 `quote_time` 的 YYYY-MM-DD）；`store.intraday_is_fresh` 与当日会话比对，跨日不再当实时展示（避免盘后 9/4、徽章仍挂 9/1）。
+- 连板数：梯队/首板优先于涨跌榜 TOP20（后者含非涨停 `streak=0` 会盖掉首板）；盘后日已是今日则不再 +1。
+- 前端：日期下拉跟最新盘后日；看最新日时自动叠盘中温度计/涨跌榜，meta 同时标「盘后 / 盘中」。
+- 常驻进程 qlib 日历在 evening dump 后必须 `reset_qlib`，否则顶栏「数据日」停在启动时点。

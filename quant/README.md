@@ -19,7 +19,7 @@
 - [x] 阶段 2b：UMP 裁判模型（借鉴 abu，对买入信号二次否决）— 样本外 A/B：超额IR 0.21→0.48
 - [x] 阶段 3：LLM 因子迭代闭环 + 五道准入关卡（3 轮迭代，2 个因子过全部关卡并提升库组合样本外 IC）
 - [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；舆情硬伤筛 + 长期记忆已接入 evening；7 月曾因买入通道故障被动清仓至 2 只/约 50% 现金，08-03 已按新模型重出补仓单（目标 5 只）
-- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler），双线 + TA 影子线并行；看板含「舆情跟踪」页（**TA 未过门禁，不上 live**）
+- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler：10:00 大盘盘中 / 22:30 evening / 23:30 postclose）；含「大盘看板」「持仓追踪」「舆情跟踪」（**TA 未过门禁，不上 live**）
 - [ ] 阶段 5：全自动实盘（miniQMT）
 
 ## 环境
@@ -83,13 +83,13 @@ contracts/       层间数据契约（信号、目标持仓等 CSV schema）
 configs/         global.yaml 全局配置 + accounts/<account>.yaml 账户 profile（资金/策略/模式）
 validation/      backtrader 复演引擎(replay_backtrader.py) + UMP 裁判(ump_judge.py)，阶段2 已实现
 factor_lab/      （阶段3）LLM 因子提议(llm_propose) + qlib 评估(evaluate) + 五道准入关卡(run_iteration) + 因子库(factors.yaml)
-overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）+ market_board（大盘看板：池内温度计/情绪周期/连板梯队/强势评分，纯展示）
+overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）+ market_board（大盘看板，纯展示）+ tracking（持仓追踪：自首次买入日起走势）
 execution/       调仓清单(make_trade_plan) + 成交回填(record_fills) + 模拟成交(simulate_fills) + 对账(reconcile)
 ops/             运维层：编排(run_daily) + 净值(compute_nav) + 日报(daily_report) + 监控(monitor) + 双线复盘(review_accounts) + TA复盘(review_ta_overlay) + 回填(backfill) + 公共库(common) + crontab.example
 contracts/       层间数据契约 schema 校验/读写(schemas.py)
 webapp/          （阶段5a）看板服务 server.py(FastAPI+APScheduler) + serve.sh + templates/ + static/
 data/            运行时数据（signals/reports/nav/fills、accounts/<account>/ 双线隔离，
-                 overlays/{ta_veto,sentiment_veto,sentiment_memory}，不入 git）
+                 overlays/{ta_veto,sentiment_veto,sentiment_memory,swing_hunter,market_board,tracking}，不入 git）
 ```
 
 ## 验证层（阶段2，backtrader 独立复演）
@@ -216,7 +216,10 @@ python overlays/sentiment_veto/run_sentiment.py --date 2026-08-03 --account live
 - 看板页：左侧跟踪列表 + 代码输入分析；详情含近 90 天走势、情绪分、摘要、关键事件、舆情条目；
   「重新分析本股」只重跑当前标的
 - API：`GET /api/sentiment/catalog`、`GET /api/sentiment/{instrument}`、
-  `POST /api/sentiment/run?account=`（账户宇宙）或 `?instrument=SZ002402`（单票，支持六位代码）
+  `POST /api/sentiment/run?account=`（账户宇宙）或 `?instrument=SZ002402`（单票，支持六位代码）；
+  亦可 `?all_traded=true&only_new=true&limit=N`（四账户 fills 宇宙 / 只跑无报告 / 限量）
+- JSON 解析：`overlays/llm_json.py` 扫描多个 `{` 候选、截断自动补全；历史失败报告可
+  `python -m overlays.sentiment_memory.reparse_reports`（`--dry-run` 只统计）
 
 ```bash
 # 手动跑全量（持仓+最新订单）
@@ -225,6 +228,8 @@ python overlays/sentiment_memory/run_memory.py --account live_manual_10k --lookb
 python overlays/sentiment_memory/run_memory.py --account live_manual_10k --dry-run
 # 指定标的 / 强制闲时模型
 python overlays/sentiment_memory/run_memory.py --instruments SH600299,SZ002739 --force-llm offpeak
+# 四账户曾买卖过的票、只跑尚无报告的、本次最多 N 只
+python overlays/sentiment_memory/run_memory.py --all-traded --only-new --limit 20
 ```
 
 ### TA 定性否决影子线（TradingAgents 精简融入）
@@ -288,7 +293,7 @@ python overlays/swing_hunter/phase0_stats.py --start 2024-01-02 --end 2026-06-30
 
 ### 大盘看板（market_board，纯展示层）
 
-池内（Plan C 生产信号池，约 499 只）涨跌停统计、情绪周期定位、连板梯队、
+池内（Plan C 生产信号池，约 500 只）涨跌停统计、情绪周期定位、连板梯队、
 强势评分；**只读，不改订单**。设计见 `docs/MARKET_BOARD.md`。
 
 ```bash
@@ -296,17 +301,37 @@ python overlays/swing_hunter/phase0_stats.py --start 2024-01-02 --end 2026-06-30
 python overlays/market_board/run_board.py                  # 最新交易日
 python overlays/market_board/run_board.py --day 2026-08-29 --force
 
-# 看板：一级 tab「大盘看板」→ 全景 / 涨停复盘 / 连板梯队 / 强势资金
-# API：GET /api/board/{days,overview,cycle,ladder,strong}，POST /api/board/run
+# 盘中快照（工作日 10:00 看板服务自动跑；亦可手动）
+python -c "from overlays.market_board.intraday import build_intraday; build_intraday()"
+
+# 看板：一级 tab「大盘看板」→ 全景 / 涨停复盘 / 连板梯队 / 题材轮动 / 强势资金 / 快讯
+# API：GET /api/board/{days,overview,cycle,intraday,ladder,strong,themes,rotation,fundflow,news}
+#      POST /api/board/run（盘后） /api/board/refresh（盘中）
 ```
 
 - 池子加载链：`data/meta/board_pool.csv`（可选覆盖）→ 当日 `data/signals/*.csv` → csi500 成分兜底
-- 产出：`data/overlays/market_board/daily/<日>.json`（+ `.done`）、`intraday/latest.json`（手动刷新）
-- 盘中：`POST /api/board/refresh`（腾讯批量报价）→ `GET /api/board/limit-scatter`（封单散点）→ `GET /api/board/stock/<代码>`（评分卡）
-- P3 已交付：`GET /api/board/{themes,rotation,fundflow,news,unlock}`
-  （题材热度/板块轮动/资金流/快讯双流/解禁雷区），并兼容产出 `data/reports/sector_pulse_*.json` 修复旧「市场热度」
-- 注意：东财 push2 主节点偶发 502，已切 `push2delay` 延时节点；解禁用
+- 产出：`data/overlays/market_board/daily/<日>.json`（+ `.done`）、`intraday/latest.json`（含 `session_day`）
+- 盘中：工作日 **10:00** `board_morning` 自动拉腾讯批量报价；跨日快照标 stale、不展示实时徽章。
+  不要用 qlib 日历判断「今天是否交易日」（只有已收盘日）。不跑 webapp 时见 `ops/crontab.example`。
+- 前端：看最新盘后日时全景叠盘中温度计/涨跌榜；`GET /api/board/limit-scatter?day=` 历史日强制盘后口径
+- P3 已交付：题材热度/板块轮动/资金流/快讯双流/解禁雷区，并兼容产出 `data/reports/sector_pulse_*.json`
+- 注意：东财 push2 主节点偶发 502，已切 `push2delay`；解禁用
   `stock_restricted_release_detail_em`（个股 queue 接口无未来预告）
+
+### 持仓追踪（tracking，纯展示层）
+
+聚合四账户 fills，自**首次买入日**起追踪价格走势，按累计收益**跌→涨**排序，
+附买卖节点与舆情摘要。**只读，不改订单**。
+
+```bash
+# 构建快照（看板「重新构建」等价；--progress 写 job.json 供进度条）
+python -m overlays.tracking.build --progress
+```
+
+- 产出：`data/overlays/tracking/snapshot.json`；任务状态 `job.json` / `analyze_job.json`
+- 看板：一级 tab「持仓追踪」；可筛仅持仓 / 仅有舆情；点开看累计曲线 + 买卖点 + 舆情
+- API：`GET /api/tracking`、`POST /api/tracking/run`、`GET/POST /api/tracking/analyze*`
+- 资金流：`overlays/tracking/fundflow.py`（东财，fail-open）
 
 ```bash
 # 首次建账
@@ -373,9 +398,10 @@ python research/predict_range.py --start 2026-06-12 --end 2026-06-15
 python ops/backfill.py --start 2026-06-11 --end 2026-06-15
 ```
 
-内置定时（Asia/Shanghai，工作日；逻辑即调用 `ops/run_daily.py`）：
+内置定时（Asia/Shanghai，工作日；逻辑即调用 `ops/run_daily.py`，大盘盘中除外）：
 
-- `22:30 evening`：两条线 `update_daily` → **刷新交易日** → 信号 → 调仓清单（UMP/风控）
+- `10:00 board_morning`：池内批量实时报价 → `market_board/intraday/latest.json`（纯展示，不改订单）
+- `22:30 evening`：各账户 `update_daily` → **刷新交易日** → 信号 → 调仓清单（UMP/风控）；跑完后 webapp `reset_qlib`，顶栏「数据日」跟最新收盘日
 - `23:30 postclose`：`order_day=上一交易日` 模拟成交 → 对账 → 净值 → 日报
 - `周五 23:45`：双线复盘
 
@@ -394,9 +420,11 @@ python ops/run_daily.py --stage postclose --account research_sim_100k
 ```
 
 看板页签：总览（大盘指数条 + 双线净值/累计收益/超额对比）、各账户（净值/收益vs基准/持仓数·换手/现金vs市值、
-持仓表、成交、报告）、双线对比、操作清单、**舆情跟踪**（三月走势 + 摘要报告；可输入代码分析 / 单票重跑）、
+持仓表、成交、报告）、双线对比、操作清单、**持仓追踪**（自首次买入日起走势、买卖节点、舆情）、
+**大盘看板**（池内温度计/连板/题材/资金/快讯；10:00 盘中叠加）、
+**舆情跟踪**（三月走势 + 摘要报告；可输入代码分析 / 单票重跑）、
 **短线猎手**（10 日 +10% 预测、分档门槛、日报卡片、LLM 评测、活跃跟踪与模式库）、
-告警/调度。API 见 `webapp/server.py`（含 `/api/sentiment/*`、`/api/swing/*`）。
+告警/调度。API 见 `webapp/server.py`（含 `/api/board/*`、`/api/tracking/*`、`/api/sentiment/*`、`/api/swing/*`）。
 
 **个股行情（选中股票实际数据）**：总览的大盘指数、持仓/成交/对账表里的标的均可点击，弹出该股
 K线（红涨绿跌）+ 成交量 + 最近 OHLC 表，支持日/周/60分/15分切换。数据源（`webapp/quotes.py`）：

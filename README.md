@@ -139,6 +139,7 @@ flowchart TB
 22:30 evening(自动)  更新数据 → 信号 → 调仓清单(UMP) → orders/
         ↓
 次日 9:30~10:00(人工)  同花顺照单下单
+        │  并行 10:00(自动)  大盘看板盘中分析（池内批量报价）
         ↓
 收盘后(人工)  record_fills 录入实际成交
         ↓
@@ -273,7 +274,8 @@ quant/
 ├── validation/        # L3：Backtrader 复演 + UMP 裁判
 ├── execution/         # L4：调仓清单、成交回填、对账
 ├── ops/               # L5：编排、净值、日报、监控、回填
-├── webapp/            # L5：FastAPI 看板 + APScheduler
+├── overlays/          # 建议层：TA / 舆情 / 短线猎手 / 大盘看板 / 持仓追踪
+├── webapp/            # L5：FastAPI 看板 + APScheduler（10:00 盘中 / 22:30 / 23:30）
 ├── contracts/         # 跨层 CSV schema 校验
 ├── configs/           # global.yaml + accounts/*.yaml
 └── data/              # 运行时数据（gitignore，按账户隔离）

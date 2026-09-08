@@ -15,6 +15,7 @@ abq/                              ← 仓库根（clone 后 cd abq）
 ├── LICENSE
 ├── docs/
 │   ├── FLOWCHARTS.md             ← 流程图（ASCII + Mermaid）
+│   ├── MARKET_BOARD.md           ← 大盘看板：池内统计、盘中 10:00、API
 │   ├── SWING_HUNTER.md           ← 短线猎手：门槛、CLI、看板 API
 │   └── REPO_LAYOUT.md            ← 本文件
 ├── 设计实现方案.md                ← 完整架构与阶段验收（可选）
@@ -29,7 +30,7 @@ abq/                              ← 仓库根（clone 后 cd abq）
     ├── validation/
     ├── execution/
     ├── ops/
-    ├── overlays/                 ← TA / 舆情硬伤筛 / 舆情记忆 / 短线猎手建议层
+    ├── overlays/                 ← TA / 舆情硬伤筛 / 舆情记忆 / 短线猎手 / 大盘看板 / 持仓追踪
     ├── webapp/
     ├── contracts/
     ├── requirements.txt
@@ -43,7 +44,7 @@ abq/                              ← 仓库根（clone 后 cd abq）
 |------|------|
 | `quant-venv/` 或 `venv/` | 本地虚拟环境，`pip install -r quant/requirements.txt` |
 | `qlib/` `vnpy/` 等 | 上游开源项目，单独 clone 到**仓库外**对照学习 |
-| `quant/data/` | 运行时数据（含 `overlays/sentiment_memory/`、`overlays/swing_hunter/`），首次运行后本地生成 |
+| `quant/data/` | 运行时数据（含 `overlays/{sentiment_memory,swing_hunter,market_board,tracking}/`），首次运行后本地生成 |
 | `~/.qlib/qlib_data/cn_data` | 市场数据，按 README 下载 |
 | `quant/configs/secret.env` | LLM / Cursor / 自部署高峰端点密钥 |
 
