@@ -224,7 +224,7 @@ next_cycle_proposal   # 继承哪些票、废弃哪些规则、待验证假设
 - 运维与产品：`quant/ops/`、`quant/webapp/`
 - 建议层：`quant/overlays/`
 - 运行数据：`quant/data/accounts/`、`quant/data/reports/`、`quant/data/logs/`
-- 当前未提交的板块预测设计：`quant/overlays/sector_forecast/`
+- 板块预测 overlay：`quant/overlays/sector_forecast/`（看板截图见 `img/pic4.png`、`img/pic6.png`）
 
 ### 2.2 证据分级
 

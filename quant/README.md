@@ -423,12 +423,15 @@ python ops/run_daily.py --stage evening --account research_sim_100k --ump
 python ops/run_daily.py --stage postclose --account research_sim_100k
 ```
 
-看板页签：总览（大盘指数条 + 双线净值/累计收益/超额对比）、各账户（净值/收益vs基准/持仓数·换手/现金vs市值、
-持仓表、成交、报告）、双线对比、操作清单、**持仓追踪**（自首次买入日起走势、买卖节点、舆情）、
-**大盘看板**（池内温度计/连板/题材/资金/快讯；10:00 盘中叠加）、
+看板页签：总览（大盘指数条 + 四线净值/累计收益/超额对比）、各账户（净值/收益vs基准/持仓数·换手/现金vs市值、
+持仓表、成交、报告）、四线对比、操作清单、**持仓追踪**（自首次买入日起走势、买卖节点、行业预测徽章、Agent 覆盖）、
+**大盘看板**（全景/涨停复盘/连板梯队/**板块预测**/强势资金/快讯；10:00 盘中叠加）、
 **舆情跟踪**（三月走势 + 摘要报告；可输入代码分析 / 单票重跑）、
 **短线猎手**（10 日 +10% 预测、分档门槛、日报卡片、LLM 评测、活跃跟踪与模式库）、
-告警/调度。API 见 `webapp/server.py`（含 `/api/board/*`、`/api/tracking/*`、`/api/sentiment/*`、`/api/swing/*`）。
+告警/调度。API 见 `webapp/server.py`（含 `/api/board/*`、`/api/sector/*`、`/api/tracking/*`、`/api/sentiment/*`、`/api/swing/*`）。
+
+界面截图见仓库根 [README.md](../README.md#web-看板预览)（`img/pic1`–`pic7`）。
+本地刷新：`python ops/capture_webapp_screenshots.py`（看板需已启动；依赖 Playwright，见 `playwright install chromium`）。
 
 **个股行情（选中股票实际数据）**：总览的大盘指数、持仓/成交/对账表里的标的均可点击，弹出该股
 K线（红涨绿跌）+ 成交量 + 最近 OHLC 表，支持日/周/60分/15分切换。数据源（`webapp/quotes.py`）：

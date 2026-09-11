@@ -28,3 +28,13 @@ python overlays/sector_forecast/test_schema.py
 evening 在 `run_board` 之后自动跑（fail-open）。
 
 产出：`data/overlays/sector_forecast/predictions/`、`models/`、`eval/`。
+
+## 看板截图
+
+大盘看板 → 子页签「板块预测」：
+
+![板块预测 — 申万一级 10/20 日候选 + LLM 简报](../../../img/pic6.png)
+
+持仓追踪列表行内挂 `industry` + `sector_forecast` 徽章：
+
+![持仓追踪 — 行业预测列](../../../img/pic4.png)
