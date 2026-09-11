@@ -1,9 +1,11 @@
 """对指定账户当前持仓跑三路分析：舆情 → 研究（4 分析师）→ 短线猎手。
 
 默认宇宙：实盘线 live_manual_10k + TA影子线 shadow_ta_sim 的 holdings（shares>0）。
+--full：持仓追踪快照全部标的（四账户曾买卖，含已清仓）。
 
     python -m overlays.tracking.run_analyze
     python -m overlays.tracking.run_analyze --dry-run
+    python -m overlays.tracking.run_analyze --full
 """
 
 from __future__ import annotations
@@ -23,13 +25,30 @@ from . import store
 # 先跑这两条线的当前持仓；后续可扩账户
 ANALYZE_ACCOUNTS = ["live_manual_10k", "shadow_ta_sim"]
 ACCOUNT_CN = {
+    "research_sim_100k": "研究模拟线",
     "live_manual_10k": "实盘线",
+    "shadow_ctrl_sim": "对照影子线",
     "shadow_ta_sim": "TA影子线",
 }
 
 
+def _pack_universe(items: list[dict[str, Any]], accounts: list[str], *,
+                   mode: str) -> dict[str, Any]:
+    instruments = [it["instrument"] for it in items]
+    held = sum(1 for it in items if it.get("still_held") or (it.get("shares") or 0) > 0)
+    return {
+        "accounts": accounts,
+        "account_labels": [ACCOUNT_CN.get(a, a) for a in accounts],
+        "instruments": instruments,
+        "items": items,
+        "total": len(instruments),
+        "held_count": held,
+        "mode": mode,
+    }
+
+
 def load_holdings_universe(accounts: list[str] | None = None) -> dict[str, Any]:
-    """返回 {instruments, by_inst: {inst: {accounts, shares, name}}}。"""
+    """返回 {instruments, items: [{accounts, shares, name}], ...}。"""
     import pandas as pd
 
     accs = accounts or ANALYZE_ACCOUNTS
@@ -65,17 +84,60 @@ def load_holdings_universe(accounts: list[str] | None = None) -> dict[str, Any]:
             if acc not in e["accounts"]:
                 e["accounts"].append(acc)
             e["shares"] += shares
+            e["still_held"] = True
             if not e["name"] and names.get(inst):
                 e["name"] = names[inst]
 
-    instruments = sorted(by_inst.keys())
-    return {
-        "accounts": accs,
-        "account_labels": [ACCOUNT_CN.get(a, a) for a in accs],
-        "instruments": instruments,
-        "items": [by_inst[i] for i in instruments],
-        "total": len(instruments),
-    }
+    items = [by_inst[i] for i in sorted(by_inst.keys())]
+    return _pack_universe(items, accs, mode="holdings")
+
+
+def load_full_universe() -> dict[str, Any]:
+    """追踪页全部标的：快照优先，无快照则聚合四账户 fills（含已清仓）。"""
+    from .build import ACCOUNTS, _load_all_fills
+
+    snap = store.load_snapshot() or {}
+    accs = [a for a in (snap.get("accounts") or ACCOUNTS) if a]
+    if not accs:
+        accs = list(ACCOUNTS)
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for x in snap.get("instruments") or []:
+        inst = str(x.get("instrument") or "").upper()
+        if len(inst) < 8 or inst[:2] not in {"SH", "SZ"} or inst in seen:
+            continue
+        seen.add(inst)
+        net = int(x.get("net_shares") or 0)
+        items.append({
+            "instrument": inst,
+            "name": x.get("name") or "",
+            "accounts": list(x.get("accounts") or []),
+            "shares": net,
+            "still_held": bool(x.get("still_held") if x.get("still_held") is not None else net > 0),
+        })
+    if not items:
+        by_fills = _load_all_fills()
+        for inst in sorted(by_fills.keys()):
+            inst = str(inst).upper()
+            if len(inst) < 8 or inst[:2] not in {"SH", "SZ"}:
+                continue
+            fills = by_fills[inst]
+            net = (sum(f["shares"] for f in fills if f["side"] == "BUY")
+                   - sum(f["shares"] for f in fills if f["side"] == "SELL"))
+            items.append({
+                "instrument": inst,
+                "name": "",
+                "accounts": sorted({f["account"] for f in fills}),
+                "shares": int(net),
+                "still_held": net > 0,
+            })
+    items.sort(key=lambda it: it["instrument"])
+    return _pack_universe(items, accs, mode="full")
+
+
+def load_analyze_universe(*, full: bool = False,
+                          accounts: list[str] | None = None) -> dict[str, Any]:
+    return load_full_universe() if full else load_holdings_universe(accounts)
 
 
 def _llm_busy_reason() -> str | None:
@@ -252,8 +314,8 @@ def _run_swing(instruments: list[str], names: dict[str, str], *,
 
 def run(*, accounts: list[str] | None = None, dry_run: bool = False,
         force_llm: str = "peak", progress: bool = True,
-        start_job: bool = True) -> dict[str, Any]:
-    uni = load_holdings_universe(accounts)
+        start_job: bool = True, full: bool = False) -> dict[str, Any]:
+    uni = load_analyze_universe(full=full, accounts=accounts)
     instruments = uni["instruments"]
     names = _lookup_names(instruments)
     for it in uni["items"]:
@@ -261,19 +323,23 @@ def run(*, accounts: list[str] | None = None, dry_run: bool = False,
             it["name"] = names.get(it["instrument"], "")
 
     if not instruments:
-        msg = "实盘线 + TA线当前无持仓"
+        msg = ("追踪快照为空，请先重新构建" if full
+               else "实盘线 + TA线当前无持仓")
         if progress and start_job:
-            store.start_analyze_job(accounts=uni["accounts"], instruments=[], names={})
+            store.start_analyze_job(
+                accounts=uni["accounts"], instruments=[], names={}, mode=uni["mode"])
             store.finish_analyze_job(ok=False, message=msg)
         elif progress:
             store.finish_analyze_job(ok=False, message=msg)
-        return {"ok": False, "total": 0, "message": msg}
+        return {"ok": False, "total": 0, "message": msg, "mode": uni["mode"]}
 
     if progress and start_job:
         store.start_analyze_job(
-            accounts=uni["accounts"], instruments=instruments, names=names)
+            accounts=uni["accounts"], instruments=instruments, names=names,
+            mode=uni["mode"])
 
-    print(f"[analyze] {uni['total']} 只 · {', '.join(uni['account_labels'])}", flush=True)
+    scope = "全量 · 追踪快照" if full else ", ".join(uni["account_labels"])
+    print(f"[analyze] {uni['total']} 只 · {scope}", flush=True)
     for it in uni["items"]:
         print(f"    · {it['instrument']} {it.get('name') or ''} "
               f"acc={'+'.join(it['accounts'])} shares={it['shares']}", flush=True)
@@ -285,14 +351,15 @@ def run(*, accounts: list[str] | None = None, dry_run: bool = False,
         store.tick_analyze("attach", 1, 1, message="回写追踪快照")
         from .build import refresh_agent_fields
         cov = refresh_agent_fields()
-        msg = (f"完成：{len(instruments)} 只 · 实盘+TA 持仓"
+        scope_done = "全量（追踪快照）" if full else "实盘+TA 持仓"
+        msg = (f"完成：{len(instruments)} 只 · {scope_done}"
                f"{'（dry-run）' if dry_run else ''}")
         print(f"[DONE] {msg} coverage={cov.get('coverage')}", flush=True)
         if progress:
             store.finish_analyze_job(ok=True, message=msg, coverage=cov.get("coverage"),
-                                     n_swing_ok=n_sw)
+                                     n_swing_ok=n_sw, mode=uni["mode"])
         return {"ok": True, "total": len(instruments), "message": msg,
-                "coverage": cov.get("coverage")}
+                "mode": uni["mode"], "coverage": cov.get("coverage")}
     except Exception as e:  # noqa: BLE001
         if progress:
             store.finish_analyze_job(ok=False, message=f"持仓分析失败: {e}"[:200])
@@ -301,11 +368,14 @@ def run(*, accounts: list[str] | None = None, dry_run: bool = False,
 
 def main() -> int:
     import argparse
-    p = argparse.ArgumentParser(description="实盘线 + TA线持仓：舆情/研究/短线三路分析")
+    p = argparse.ArgumentParser(description="持仓追踪：舆情/研究/短线三路分析")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--force-llm", default="peak", choices=["peak", "offpeak"])
+    p.add_argument("--full", action="store_true",
+                   help="全量：追踪快照全部标的（四账户曾买卖，含已清仓）")
     args = p.parse_args()
-    out = run(dry_run=args.dry_run, force_llm=args.force_llm, progress=True)
+    out = run(dry_run=args.dry_run, force_llm=args.force_llm, progress=True,
+              full=args.full)
     print(out.get("message", ""))
     return 0 if out.get("ok") else 1
 

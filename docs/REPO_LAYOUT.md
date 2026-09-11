@@ -30,7 +30,7 @@ abq/                              ← 仓库根（clone 后 cd abq）
     ├── validation/
     ├── execution/
     ├── ops/
-    ├── overlays/                 ← TA / 舆情硬伤筛 / 舆情记忆 / 短线猎手 / 大盘看板 / 持仓追踪
+    ├── overlays/                 ← TA / 舆情硬伤筛 / 舆情记忆 / 短线猎手 / 大盘看板 / 板块预测 / 持仓追踪
     ├── webapp/
     ├── contracts/
     ├── requirements.txt

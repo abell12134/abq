@@ -173,7 +173,10 @@ def finish_job(ok: bool = True, message: str | None = None, **extra: Any) -> dic
 
 
 def start_analyze_job(*, accounts: list[str], instruments: list[str],
-                      names: dict[str, str] | None = None) -> dict[str, Any]:
+                      names: dict[str, str] | None = None,
+                      mode: str = "holdings") -> dict[str, Any]:
+    full = mode == "full"
+    scope = "全量 · 追踪快照" if full else "实盘线 + TA线持仓"
     return write_analyze_job({
         "id": uuid4().hex[:12],
         "kind": "analyze",
@@ -181,8 +184,9 @@ def start_analyze_job(*, accounts: list[str], instruments: list[str],
         "started_at": _now(),
         "finished_at": None,
         "pct": 2,
-        "message": f"准备分析 {len(instruments)} 只（实盘线 + TA线持仓）",
+        "message": f"准备分析 {len(instruments)} 只（{scope}）",
         "phase": "start",
+        "mode": mode,
         "accounts": accounts,
         "instruments": instruments,
         "names": names or {},

@@ -2,6 +2,7 @@
 
 输出：data/overlays/tracking/snapshot.json
 任务状态：data/overlays/tracking/job.json
+快照行含 industry（申万一级）与 sector_forecast 切片。
 """
 
 from __future__ import annotations

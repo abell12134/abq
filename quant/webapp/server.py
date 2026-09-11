@@ -194,10 +194,34 @@ def _account_label(account: str) -> str:
     return f"{name}（{cap:,.0f}元·{mode}）" if cap else name
 
 
+def _capital_injections(account: str) -> list[dict]:
+    """account.json 中的外部现金流（注资/划出），供前端图表标注。"""
+    acc = C.load_account(account)
+    if not acc:
+        return []
+    raw = acc.get("capital_injection")
+    if not raw:
+        return []
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        day = str(it.get("date") or "").strip()
+        if not day:
+            continue
+        out.append({
+            "date": day,
+            "amount": round(float(it.get("amount") or 0), 2),
+            "note": str(it.get("note") or ""),
+        })
+    return out
+
+
 def daily_series(account: str) -> dict:
     d = RA.load_daily(account)
     if d.empty:
-        return {"account": account, "dates": [], "series": {}}
+        return {"account": account, "dates": [], "series": {}, "capital_injections": []}
     # 累计收益用时间加权（日收益连乘），避免注资后改 start_capital 把历史段压成巨亏。
     cum_ret = C.twr_cum_series(d["daily_ret"])
     cum_bench = (1 + d["bench_ret"].fillna(0)).cumprod() - 1
@@ -216,6 +240,7 @@ def daily_series(account: str) -> dict:
             "cum_bench": (cum_bench * 100).round(3).tolist(),
             "cum_excess": (cum_excess * 100).round(3).tolist(),
         },
+        "capital_injections": _capital_injections(account),
     }
 
 
@@ -1373,10 +1398,18 @@ def api_tracking():
     """
     sys.path.insert(0, str(QUANT))
     from overlays.tracking import store as TK  # noqa: WPS433
+    from overlays.tracking.build import _attach_sector_fields  # noqa: WPS433
     snap = TK.load_snapshot()
     if not snap:
         return {"empty": True, "total": 0, "instruments": [],
                 "message": "尚无追踪快照，点击「重新构建」生成"}
+    insts = snap.get("instruments") or []
+    if insts:
+        _attach_sector_fields(insts)
+        snap["instruments"] = insts
+        cov = dict(snap.get("coverage") or {})
+        cov["sector"] = sum(1 for x in insts if x.get("sector_forecast"))
+        snap["coverage"] = cov
     snap["empty"] = False
     return snap
 
@@ -1417,18 +1450,30 @@ def api_tracking_run(request: Request):
     return {"ok": True, "queued": True, "busy": False, "job": TK.read_job()}
 
 
+def _uni_preview(uni: dict) -> dict:
+    return {
+        "accounts": uni.get("accounts") or [],
+        "account_labels": uni.get("account_labels") or [],
+        "total": uni.get("total") or 0,
+        "held_count": uni.get("held_count") or 0,
+        "mode": uni.get("mode") or "holdings",
+        "items": uni.get("items") or [],
+    }
+
+
 @app.get("/api/tracking/analyze/universe")
 def api_tracking_analyze_universe():
-    """实盘线 + TA线当前持仓宇宙（跑分析按钮预览）。"""
+    """跑分析宇宙预览：当前持仓 + 全量（追踪快照/曾买卖）。"""
     sys.path.insert(0, str(QUANT))
-    from overlays.tracking.run_analyze import load_holdings_universe  # noqa: WPS433
-    uni = load_holdings_universe()
-    return {
-        "accounts": uni["accounts"],
-        "account_labels": uni["account_labels"],
-        "total": uni["total"],
-        "items": uni["items"],
-    }
+    from overlays.tracking.run_analyze import (  # noqa: WPS433
+        load_full_universe, load_holdings_universe,
+    )
+    hold = load_holdings_universe()
+    full = load_full_universe()
+    out = _uni_preview(hold)
+    out["holdings"] = _uni_preview(hold)
+    out["full"] = _uni_preview(full)
+    return out
 
 
 @app.get("/api/tracking/analyze/job")
@@ -1439,13 +1484,13 @@ def api_tracking_analyze_job():
 
 
 @app.post("/api/tracking/analyze")
-def api_tracking_analyze(request: Request, dry_run: bool = False):
-    """对实盘线 + TA线当前持仓串行跑舆情 / 研究 / 短线。"""
+def api_tracking_analyze(request: Request, dry_run: bool = False, full: bool = False):
+    """串行跑舆情 / 研究 / 短线。默认实盘+TA 当前持仓；full=true 为追踪快照全部标的。"""
     _require_full_access(request)
     sys.path.insert(0, str(QUANT))
     from overlays.tracking import store as TK  # noqa: WPS433
     from overlays.tracking.run_analyze import (  # noqa: WPS433
-        _llm_busy_reason, load_holdings_universe, run as run_analyze,
+        _llm_busy_reason, load_analyze_universe, run as run_analyze,
     )
 
     running = TK.read_analyze_job()
@@ -1460,25 +1505,29 @@ def api_tracking_analyze(request: Request, dry_run: bool = False):
         return {"ok": False, "queued": False, "busy": True, "message": busy,
                 "job": running}
 
-    uni = load_holdings_universe()
+    uni = load_analyze_universe(full=full)
     if not uni["total"]:
+        msg = ("追踪快照为空，请先重新构建" if full
+               else "实盘线 + TA线当前无持仓")
         return {"ok": False, "queued": False, "busy": False,
-                "message": "实盘线 + TA线当前无持仓", "total": 0}
+                "message": msg, "total": 0, "mode": uni["mode"]}
 
     names = {it["instrument"]: it.get("name") or "" for it in uni["items"]}
     job = TK.start_analyze_job(
-        accounts=uni["accounts"], instruments=uni["instruments"], names=names)
+        accounts=uni["accounts"], instruments=uni["instruments"], names=names,
+        mode=uni["mode"])
     log = LOG_DIR / f"tracking_analyze_{datetime.now():%Y-%m-%d}.log"
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    tag = "full" if full else "holdings"
 
     def _bg():
         with log.open("a") as fh:
-            fh.write(f"\n=== {datetime.now():%F %T} analyze "
+            fh.write(f"\n=== {datetime.now():%F %T} analyze {tag} "
                      f"{uni['total']} {','.join(uni['instruments'])} ===\n")
             fh.flush()
             try:
                 out = run_analyze(dry_run=dry_run, force_llm="peak",
-                                  progress=True, start_job=False)
+                                  progress=True, start_job=False, full=full)
                 fh.write(f"[result] {out}\n")
             except Exception as e:  # noqa: BLE001
                 fh.write(f"[job-error] {e}\n")
@@ -1487,7 +1536,8 @@ def api_tracking_analyze(request: Request, dry_run: bool = False):
     threading.Thread(target=_bg, daemon=True).start()
     return {
         "ok": True, "queued": True, "busy": False, "job": job,
-        "total": uni["total"], "items": uni["items"], "log": str(log),
+        "total": uni["total"], "items": uni["items"], "mode": uni["mode"],
+        "log": str(log),
     }
 
 
@@ -2267,3 +2317,93 @@ def api_board_unlock(day: str | None = None):
         return {"ok": True, "available": False}
     return {"ok": True, "available": True, "day": snap.get("day"),
             "alerts": snap.get("unlock_alerts") or []}
+
+
+# ----------------------------- 板块预测（sector_forecast，只读） -----------------------------
+
+
+@app.get("/api/sector/forecast")
+def api_sector_forecast(day: str | None = None):
+    """双期限申万一级行业预测（池内等权 vs 中证500）。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.sector_forecast import store as SF
+    if day:
+        pred = SF.load_prediction(day)
+        d = day
+    else:
+        d, pred = SF.load_latest()
+    if not pred:
+        return {"ok": True, "available": False,
+                "disclaimer": "尚无板块预测。evening 自动跑，或 POST /api/sector/run。"}
+    return {"ok": True, "available": True, "day": d, **pred, "job": SF.read_job()}
+
+
+@app.get("/api/sector/eval")
+def api_sector_eval():
+    """OOS 成绩单 + 线上已结算命中率。"""
+    sys.path.insert(0, str(QUANT))
+    from overlays.sector_forecast import store as SF
+    oos = SF.load_json(SF.eval_path("oos.json")) or SF.load_json(SF.eval_path("scorecard.json"))
+    live = SF.load_json(SF.eval_path("live.json"))
+    meta = SF.load_json(SF.model_dir() / "meta.json")
+    return {"ok": True, "oos": oos, "live": live, "meta": meta}
+
+
+@app.post("/api/sector/run")
+def api_sector_run(request: Request, day: str | None = None, force: bool = False,
+                   retrain: bool = False, brief_only: bool = False,
+                   skip_llm: bool = False):
+    """后台重跑板块预测（fail-open，不改订单）。"""
+    _require_full_access(request)
+    sys.path.insert(0, str(QUANT))
+    from overlays.sector_forecast import store as SF
+    job = SF.read_job()
+    if job.get("status") == "running":
+        return {"ok": True, "queued": False, "busy": True, "job": job}
+    started = datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S")
+    SF.write_job({"status": "running", "started": started, "pct": 5,
+                  "message": "正在补 LLM 简报…" if brief_only else "正在构建行业特征…"})
+    log_file = LOG_DIR / f"sector_forecast_{datetime.now():%Y-%m-%d}.log"
+    cmd = [PY, str(QUANT / "overlays" / "sector_forecast" / "run_forecast.py"),
+           "--progress"]
+    if day:
+        cmd += ["--day", day]
+    if force:
+        cmd += ["--force"]
+    if retrain:
+        cmd += ["--retrain"]
+    if brief_only:
+        cmd += ["--brief-only"]
+    if skip_llm:
+        cmd += ["--skip-llm"]
+
+    def _bg():
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n=== {started} {' '.join(cmd[1:])} ===\n")
+            fh.flush()
+            try:
+                proc = subprocess.Popen(
+                    cmd, stdout=fh, stderr=subprocess.STDOUT,
+                    text=True, cwd=str(QUANT),
+                    env={**dict(os.environ), "PYTHONUNBUFFERED": "1"},
+                )
+                rc = proc.wait()
+                cur = SF.read_job()
+                if cur.get("status") == "running":
+                    SF.write_job({
+                        "status": "ok" if rc == 0 else "error",
+                        "started": started, "pct": 100, "rc": rc,
+                        "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                        "message": "已更新" if rc == 0 else f"退出码 {rc}",
+                    })
+            except Exception as exc:  # noqa: BLE001
+                SF.write_job({
+                    "status": "error", "started": started, "pct": 100,
+                    "message": str(exc),
+                    "finished": datetime.now(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M:%S"),
+                })
+
+    threading.Thread(target=_bg, daemon=True).start()
+    return {"ok": True, "queued": True, "busy": False, "job": SF.read_job(),
+            "log": str(log_file)}

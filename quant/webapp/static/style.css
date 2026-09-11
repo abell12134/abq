@@ -647,6 +647,56 @@ tr.grade-A td { background: #d2992208; }
 }
 
 /* ---------------- 持仓追踪 ---------------- */
+.trk-analyze-group {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.trk-analyze-group > #trk-analyze {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.trk-analyze-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgba(255,255,255,.22);
+  padding: 6px 9px;
+  min-width: 28px;
+  font-size: 11px;
+  line-height: 1;
+}
+.trk-analyze-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 248px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 30;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+}
+.trk-analyze-pop button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.trk-analyze-pop button:hover { background: var(--hover); opacity: 1; }
+.trk-analyze-pop .sub {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+  margin-top: 2px;
+  line-height: 1.4;
+}
 .trk-toolbar {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   margin: 10px 0 8px;
@@ -664,9 +714,10 @@ tr.grade-A td { background: #d2992208; }
 .small { font-size: 11px; }
 .trk-agents { margin: 12px 0 16px; }
 .trk-agent-grid {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px;
   margin-bottom: 10px;
 }
+@media (max-width: 900px) { .trk-agent-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 720px) { .trk-agent-grid { grid-template-columns: 1fr; } }
 .trk-agent-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 10px;
@@ -710,3 +761,34 @@ tr.grade-A td { background: #d2992208; }
 .trk-ff-card .val.pos { color: var(--red, #e5534b); }
 .trk-ff-card .val.neg { color: var(--green, #2ea043); }
 .trk-ff-hist { margin-top: 8px; }
+
+.board-forecast-scorecard {
+  margin: 0 0 12px; padding: 8px 12px;
+  background: var(--inset, rgba(255,255,255,.03));
+  border-radius: 8px; font-size: 12.5px; line-height: 1.55;
+}
+.board-forecast-list { display: flex; flex-direction: column; gap: 8px; }
+.sf-card {
+  border: 1px solid var(--line, var(--border));
+  border-radius: 10px; padding: 10px 12px;
+  background: var(--card);
+}
+.sf-card.up { background: rgba(229,83,75,.06); }
+.sf-card.avoid { background: rgba(46,160,67,.06); }
+.sf-card.shadow { opacity: .78; }
+.sf-card-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.sf-card-head .name { font-weight: 700; font-size: 15px; }
+.sf-badge {
+  font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  background: var(--inset); color: var(--muted);
+}
+.sf-badge.up { background: rgba(229,83,75,.18); color: var(--red, #e5534b); }
+.sf-badge.avoid { background: rgba(46,160,67,.18); color: var(--green, #2ea043); }
+.sf-badge.challenge { background: rgba(210,153,34,.2); color: #d4a017; }
+.sf-thesis { font-size: 13px; margin: 6px 0 4px; line-height: 1.5; }
+.sf-risks { color: var(--muted); }
+.sf-card .metrics { font-size: 12.5px; color: var(--muted); margin: 4px 0; }
+.sf-card ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; }
+.sf-empty { padding: 16px; color: var(--muted); }

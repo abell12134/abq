@@ -96,12 +96,23 @@
       <div class="sent-toolbar">
         <div>
           <h2 class="sent-title">持仓追踪</h2>
-          <p class="panel-desc">所有被选中过/买卖过的票，自首次买入日起追踪价格走势 · 按跌→涨排序 · 含买卖节点与舆情摘要</p>
+          <p class="panel-desc">所有被选中过/买卖过的票，自首次买入日起追踪价格走势 · 按跌→涨排序 · 含买卖节点、舆情与行业预测</p>
         </div>
         <div class="sent-actions">
           <span id="trk-updated" class="sent-updated">—</span>
           <button id="trk-refresh" type="button">刷新</button>
-          <button id="trk-analyze" type="button" title="对实盘线 + TA影子线当前持仓跑舆情 / 研究 / 短线">跑分析</button>
+          <div class="trk-analyze-group" id="trk-analyze-group">
+            <button id="trk-analyze" type="button" title="对实盘线 + TA影子线当前持仓跑舆情 / 研究 / 短线">跑分析</button>
+            <button id="trk-analyze-caret" type="button" class="trk-analyze-caret" title="选择分析范围" aria-haspopup="true" aria-expanded="false" aria-label="选择分析范围">▾</button>
+            <div id="trk-analyze-pop" class="trk-analyze-pop hidden" role="menu">
+              <button type="button" role="menuitem" data-mode="holdings" id="trk-analyze-holdings">
+                当前持仓<span class="sub" id="trk-analyze-holdings-sub">实盘线 + TA线</span>
+              </button>
+              <button type="button" role="menuitem" data-mode="full" id="trk-analyze-full">
+                全量跑<span class="sub" id="trk-analyze-full-sub">追踪页全部标的</span>
+              </button>
+            </div>
+          </div>
           <button id="trk-run" type="button" class="btn-secondary">重新构建</button>
         </div>
       </div>
@@ -132,7 +143,7 @@
           <button class="subtab active" data-sub="panorama">全景</button>
           <button class="subtab" data-sub="limit">涨停复盘</button>
           <button class="subtab" data-sub="ladder">连板梯队</button>
-          <button class="subtab" data-sub="theme">题材轮动</button>
+          <button class="subtab" data-sub="theme">板块预测</button>
           <button class="subtab" data-sub="strong">强势资金</button>
           <button class="subtab" data-sub="news">快讯</button>
         </div>
@@ -219,17 +230,32 @@
         <div class="board-card"><h2>首板名单</h2><div id="board-first" class="table-wrap"></div></div>
       </div>
 
-      <!-- 子页：题材轮动 -->
+      <!-- 子页：板块预测（主）+ 题材/轮动证据 -->
       <div id="board-theme" class="board-sub">
+        <div id="board-forecast-scorecard" class="board-forecast-scorecard muted"></div>
         <div class="board-grid-2">
-          <div class="board-card"><h2>题材热度榜（概念，含池内命中）</h2>
+          <div class="board-card">
+            <h2>两周候选</h2>
+            <p class="chart-sub">10 个交易日 · 池内申万一级等权 vs 中证500 · 非必涨</p>
+            <div id="board-forecast-10"></div>
+          </div>
+          <div class="board-card">
+            <h2>一个月候选</h2>
+            <p class="chart-sub">20 个交易日 · 同一结算口径</p>
+            <div id="board-forecast-20"></div>
+          </div>
+        </div>
+        <div class="board-grid-2">
+          <div class="board-card"><h2>证据 · 题材热度（概念，含池内命中）</h2>
+            <p class="panel-desc">今日热度，不是预测</p>
             <div id="board-concepts" class="table-wrap"></div></div>
-          <div class="board-card"><h2>行业榜（全市场申万口径）</h2>
+          <div class="board-card"><h2>证据 · 行业榜（东财全市场）</h2>
+            <p class="panel-desc">与申万一级不同名，不参与结算</p>
             <div id="board-ind-list" class="table-wrap"></div></div>
         </div>
         <div class="board-card">
-          <h2>板块轮动矩阵（池内行业 × 近5/10/20日涨幅%）</h2>
-          <p class="panel-desc">红涨绿跌；「流入↑」= 近5日强而20日弱（新资金切入），「流出↓」反之</p>
+          <h2>证据 · 板块轮动矩阵（池内行业 × 近5/10/20日涨幅%）</h2>
+          <p class="panel-desc">描述过去，不是预测。「流入↑」= 近5日强而20日弱</p>
           <div id="board-rotation" class="table-wrap"></div>
         </div>
       </div>

@@ -293,7 +293,7 @@ flowchart TD
   │  · 双线净值/超额对比                  │
   │  · 持仓/成交/报告 / 操作清单          │
   │  · 持仓追踪（首次买入日起走势）        │
-  │  · 大盘看板（池内温度计/连板/快讯）    │
+  │  · 大盘看板（池内温度计/连板/板块预测）│
   │  · 舆情跟踪（三月走势+摘要报告）       │
   │  · 个股 K 线 (腾讯 → 东财 → qlib)     │
   ├─────────────────────────────────────┤
@@ -366,5 +366,32 @@ flowchart TD
 ```
 
 门槛：`strict`（催化明确才 predict）→ 若无 predict，Judge 降一档 `standard`（仅重跑裁判，标记 gate_tier）。
+
+---
+
+## 9. 板块预测（sector_forecast）
+
+```
+  evening（run_board 之后，fail-open）
+         │
+         ▼
+  qlib 池内行业日面板（动量/广度/拥挤/市场温度）
+         │
+         ▼
+  截面 LightGBM 10d / 20d 跑赢中证500
+         │
+         ▼
+  OOS vs 当日涨幅榜 Top3 → 过门才取消 shadow
+         │
+         ▼
+  predictions/YYYY-MM-DD.json  + 到期 settle
+         │
+         ▼
+  看板「板块预测」主区候选卡
+  持仓追踪行挂 industry + 切片
+
+  ※ 题材/概念只做证据 · 不改 orders/
+```
+
 
 详细说明：[SWING_HUNTER.md](SWING_HUNTER.md)

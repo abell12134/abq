@@ -28,6 +28,7 @@ LOG=/home/ubuntu/project/quant/data/logs
 
 # 10:00 大盘看板盘中分析（批量实时报价；不跑常驻 webapp 时启用，与 APScheduler 二选一）
 # 0 10 * * 1-5  cd $QUANT && $VENV -c "from overlays.market_board.intraday import build_intraday; build_intraday()" >> $LOG/board_morning_$(date +\%F).log 2>&1
+# 板块预测由 evening run_daily 在 run_board 之后自动跑（fail-open），无需单独 cron。
 
 # --- 次日开盘 9:35~10:00：人工照 data/accounts/live_manual_10k/orders/ 清单在同花顺下单（无 cron）---
 # --- 收盘后：人工生成/更新实盘 fills，再 apply（无 cron）---

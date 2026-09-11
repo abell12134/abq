@@ -19,7 +19,7 @@
 - [x] 阶段 2b：UMP 裁判模型（借鉴 abu，对买入信号二次否决）— 样本外 A/B：超额IR 0.21→0.48
 - [x] 阶段 3：LLM 因子迭代闭环 + 五道准入关卡（3 轮迭代，2 个因子过全部关卡并提升库组合样本外 IC）
 - [~] 阶段 4：路线一每日闭环已实跑（`live_manual_10k` manual）；舆情硬伤筛 + 长期记忆已接入 evening；7 月曾因买入通道故障被动清仓至 2 只/约 50% 现金，08-03 已按新模型重出补仓单（目标 5 只）
-- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler：10:00 大盘盘中 / 22:30 evening / 23:30 postclose）；含「大盘看板」「持仓追踪」「舆情跟踪」（**TA 未过门禁，不上 live**）
+- [~] 阶段 5a：后台常驻看板 + 内置定时（FastAPI:8000 + APScheduler：10:00 大盘盘中 / 22:30 evening / 23:30 postclose）；含「大盘看板」「板块预测」「持仓追踪」「舆情跟踪」（**TA 未过门禁，不上 live**）
 - [ ] 阶段 5：全自动实盘（miniQMT）
 
 ## 环境
@@ -83,13 +83,13 @@ contracts/       层间数据契约（信号、目标持仓等 CSV schema）
 configs/         global.yaml 全局配置 + accounts/<account>.yaml 账户 profile（资金/策略/模式）
 validation/      backtrader 复演引擎(replay_backtrader.py) + UMP 裁判(ump_judge.py)，阶段2 已实现
 factor_lab/      （阶段3）LLM 因子提议(llm_propose) + qlib 评估(evaluate) + 五道准入关卡(run_iteration) + 因子库(factors.yaml)
-overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）+ market_board（大盘看板，纯展示）+ tracking（持仓追踪：自首次买入日起走势）
+overlays/        ta_veto（影子定性否决）+ sentiment_veto（实盘舆情硬伤筛）+ sentiment_memory（多源舆情长期记忆）+ swing_hunter（短线猎手建议层）+ market_board（大盘看板，纯展示）+ sector_forecast（申万一级 10/20 日超额预测）+ tracking（持仓追踪：自首次买入日起走势）
 execution/       调仓清单(make_trade_plan) + 成交回填(record_fills) + 模拟成交(simulate_fills) + 对账(reconcile)
 ops/             运维层：编排(run_daily) + 净值(compute_nav) + 日报(daily_report) + 监控(monitor) + 双线复盘(review_accounts) + TA复盘(review_ta_overlay) + 回填(backfill) + 公共库(common) + crontab.example
 contracts/       层间数据契约 schema 校验/读写(schemas.py)
 webapp/          （阶段5a）看板服务 server.py(FastAPI+APScheduler) + serve.sh + templates/ + static/
 data/            运行时数据（signals/reports/nav/fills、accounts/<account>/ 双线隔离，
-                 overlays/{ta_veto,sentiment_veto,sentiment_memory,swing_hunter,market_board,tracking}，不入 git）
+                 overlays/{ta_veto,sentiment_veto,sentiment_memory,swing_hunter,market_board,sector_forecast,tracking}，不入 git）
 ```
 
 ## 验证层（阶段2，backtrader 独立复演）
@@ -304,9 +304,10 @@ python overlays/market_board/run_board.py --day 2026-08-29 --force
 # 盘中快照（工作日 10:00 看板服务自动跑；亦可手动）
 python -c "from overlays.market_board.intraday import build_intraday; build_intraday()"
 
-# 看板：一级 tab「大盘看板」→ 全景 / 涨停复盘 / 连板梯队 / 题材轮动 / 强势资金 / 快讯
+# 看板：一级 tab「大盘看板」→ 全景 / 涨停复盘 / 连板梯队 / 板块预测 / 强势资金 / 快讯
 # API：GET /api/board/{days,overview,cycle,intraday,ladder,strong,themes,rotation,fundflow,news}
 #      POST /api/board/run（盘后） /api/board/refresh（盘中）
+#      GET /api/sector/{forecast,eval}  POST /api/sector/run
 ```
 
 - 池子加载链：`data/meta/board_pool.csv`（可选覆盖）→ 当日 `data/signals/*.csv` → csi500 成分兜底
@@ -315,6 +316,8 @@ python -c "from overlays.market_board.intraday import build_intraday; build_intr
   不要用 qlib 日历判断「今天是否交易日」（只有已收盘日）。不跑 webapp 时见 `ops/crontab.example`。
 - 前端：看最新盘后日时全景叠盘中温度计/涨跌榜；`GET /api/board/limit-scatter?day=` 历史日强制盘后口径
 - P3 已交付：题材热度/板块轮动/资金流/快讯双流/解禁雷区，并兼容产出 `data/reports/sector_pulse_*.json`
+- 板块预测（2026-09）：`overlays/sector_forecast` 申万一级 10/20 日相对中证500；
+  evening 接在 `run_board` 后；LLM 只解释已选候选；`GET /api/sector/forecast`
 - 注意：东财 push2 主节点偶发 502，已切 `push2delay`；解禁用
   `stock_restricted_release_detail_em`（个股 queue 接口无未来预告）
 
@@ -329,9 +332,10 @@ python -m overlays.tracking.build --progress
 ```
 
 - 产出：`data/overlays/tracking/snapshot.json`；任务状态 `job.json` / `analyze_job.json`
-- 看板：一级 tab「持仓追踪」；可筛仅持仓 / 仅有舆情；点开看累计曲线 + 买卖点 + 舆情
+- 看板：一级 tab「持仓追踪」；可筛仅持仓 / 仅有舆情；点开看累计曲线 + 买卖点 + 舆情 + 行业预测
 - API：`GET /api/tracking`、`POST /api/tracking/run`、`GET/POST /api/tracking/analyze*`
 - 资金流：`overlays/tracking/fundflow.py`（东财，fail-open）
+- 行业：快照附申万一级与 `sector_forecast` 切片；无快照重建时 GET 接口也会即时挂上
 
 ```bash
 # 首次建账

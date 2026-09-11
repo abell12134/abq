@@ -217,4 +217,37 @@ patterns:
   - 流动性风险
   - 题材退潮风险
   notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
-updated_at: '2026-08-28 22:33:35'
+- id: hit_20260907_SH601118
+  status: candidate
+  source: swing_hit
+  mined_at: '2026-09-09 22:33:53'
+  instrument: SH601118
+  name: 海南橡胶
+  pred_date: '2026-09-07'
+  result: hit
+  result_return: 0.1058
+  hit_tier: 1
+  days_held: 2
+  catalysts:
+  - 题材板块启动
+  - 政策行业利好
+  - 其他催化
+  confidence: 0.25
+  swing_score: 0.6801
+  factor_brief:
+    last_close: 7.2
+    ret_5d: 0.1094
+    ret_20d: 0.3043
+    ret_60d: 0.2414
+    near_60d_high: -0.0686
+    vol_20d: 0.0351
+    vol_ratio: 1.27
+  reasons:
+  - 农林牧渔板块近期获主力资金流入、农业种植概念走强，存在板块共振预期，但个股资金传导链条未证实
+  - 公司利好为一次性保险赔款及青苗补偿款（非经营性损益），政策利好证据不足，缺乏可持续催化
+  - 股价近20日+30%、逼近60日高点，量比仅1.27温和放量，动能部分透支且量化模型偏负
+  risk_tags:
+  - 题材退潮风险
+  - 大盘系统性风险
+  notes: 自动从 hit 案例挖掘；需样本外验证后才可晋升 live
+updated_at: '2026-09-09 22:33:53'

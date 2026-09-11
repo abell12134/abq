@@ -361,10 +361,12 @@ def build_snapshot(*, progress: bool = False) -> dict[str, Any]:
         data_day = C.latest_trading_day()
     except Exception:
         data_day = None
+    _attach_sector_fields(instruments)
     n_sent = sum(1 for x in instruments if x.get("sentiment"))
     n_swing = sum(1 for x in instruments if x.get("swing"))
     n_rs = sum(1 for x in instruments if x.get("research"))
     n_ff = sum(1 for x in instruments if x.get("fundflow"))
+    n_sec = sum(1 for x in instruments if x.get("sector_forecast"))
     return {
         "data_day": data_day,
         "accounts": ACCOUNTS,
@@ -376,13 +378,60 @@ def build_snapshot(*, progress: bool = False) -> dict[str, Any]:
             "swing": n_swing,
             "research": n_rs,
             "fundflow": n_ff,
+            "sector": n_sec,
         },
         "instruments": instruments,
     }
 
 
+def _load_industry_map() -> dict[str, str]:
+    try:
+        sys.path.insert(0, str(QUANT))
+        from execution.industry import load_industry_map  # noqa: WPS433
+        return load_industry_map()
+    except Exception:
+        return {}
+
+
+def _attach_sector_fields(instruments: list[dict]) -> None:
+    """挂申万一级 + 当日板块预测切片（只读）。"""
+    try:
+        from overlays.sector_forecast import store as SF  # noqa: WPS433
+        from overlays.sector_forecast.schema import (  # noqa: WPS433
+            align_stock_sector, industry_bias, stock_bias,
+        )
+        _day, pred = SF.load_latest()
+    except Exception:
+        pred = None
+        align_stock_sector = industry_bias = stock_bias = None  # type: ignore
+    ind_map = _load_industry_map()
+    for x in instruments:
+        inst = str(x.get("instrument") or "").upper()
+        industry = ind_map.get(inst) or "未知"
+        x["industry"] = industry
+        if not pred or industry == "未知" or align_stock_sector is None:
+            x["sector_forecast"] = None
+            x["sector_align"] = None
+            continue
+        rec = (pred.get("by_industry") or {}).get(industry) or {}
+        h10, h20 = rec.get("h10"), rec.get("h20")
+        ib = industry_bias(h10, h20)
+        sb = stock_bias(x.get("swing"), x.get("research"))
+        x["sector_forecast"] = {
+            "day": pred.get("day"),
+            "shadow": bool(pred.get("shadow")),
+            "h10": h10,
+            "h20": h20,
+            "related_concepts": rec.get("related_concepts") or [],
+            "news_hits": rec.get("news_hits") or 0,
+            "align": align_stock_sector(sb, ib),
+            "disclaimer": pred.get("disclaimer"),
+        }
+        x["sector_align"] = x["sector_forecast"]["align"]
+
+
 def refresh_agent_fields() -> dict[str, Any]:
-    """用最新舆情/短线/研究覆盖快照字段，不重拉行情。"""
+    """用最新舆情/短线/研究/板块预测覆盖快照字段，不重拉行情。"""
     snap = store.load_snapshot()
     if not snap:
         return {"ok": False, "coverage": {}, "total": 0}
@@ -401,8 +450,10 @@ def refresh_agent_fields() -> dict[str, Any]:
             n_w += 1
         if x.get("research"):
             n_r += 1
+    _attach_sector_fields(snap.get("instruments") or [])
+    n_sec = sum(1 for x in (snap.get("instruments") or []) if x.get("sector_forecast"))
     cov = dict(snap.get("coverage") or {})
-    cov.update({"sentiment": n_s, "swing": n_w, "research": n_r})
+    cov.update({"sentiment": n_s, "swing": n_w, "research": n_r, "sector": n_sec})
     snap["coverage"] = cov
     store.save_snapshot(snap)
     return {"ok": True, "coverage": cov, "total": snap.get("total") or 0}

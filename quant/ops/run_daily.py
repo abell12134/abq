@@ -187,6 +187,13 @@ def evening(args, day: str) -> int:
         if not step("大盘看板快照", board, day, fatal=False):
             C.alert("WARN", "大盘看板快照步骤异常（不影响下单，纯展示层）", day)
 
+    # 板块预测（只读）：申万一级 10/20 日相对中证500；fail-open，不改订单。
+    if cfg.get("sector_forecast", {}).get("enabled", True):
+        sec = [PY, str(QUANT / "overlays" / "sector_forecast" / "run_forecast.py"),
+               "--day", day]
+        if not step("板块行业预测", sec, day, fatal=False):
+            C.alert("WARN", "板块预测步骤异常（不影响下单，纯建议层）", day)
+
     # 注：不在 evening 预生成 fills 模板——成交日期应为"次日执行日"而非订单日，
     # 在订单日写 fills/<订单日>.csv 会与上一日 postclose 的真实成交文件撞名。
     # 研究线由 simulate_fills 在 postclose 自动产出成交；

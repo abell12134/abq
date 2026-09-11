@@ -274,7 +274,7 @@ quant/
 ├── validation/        # L3：Backtrader 复演 + UMP 裁判
 ├── execution/         # L4：调仓清单、成交回填、对账
 ├── ops/               # L5：编排、净值、日报、监控、回填
-├── overlays/          # 建议层：TA / 舆情 / 短线猎手 / 大盘看板 / 持仓追踪
+├── overlays/          # 建议层：TA / 舆情 / 短线猎手 / 大盘看板 / 板块预测 / 持仓追踪
 ├── webapp/            # L5：FastAPI 看板 + APScheduler（10:00 盘中 / 22:30 / 23:30）
 ├── contracts/         # 跨层 CSV schema 校验
 ├── configs/           # global.yaml + accounts/*.yaml

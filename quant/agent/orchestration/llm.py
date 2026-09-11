@@ -1,4 +1,4 @@
-"""Agent LLM access — prefer LLM_PEAK_* (local Ollama / nemotron).
+"""Agent LLM access — prefer LLM_PEAK_* (local Ollama / Qwen).
 
 Uses overlays.sentiment_memory.llm_router; Agent always tries peak first
 regardless of clock hour (production console wants the self-hosted model).

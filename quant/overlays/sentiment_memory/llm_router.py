@@ -87,12 +87,12 @@ def peak_endpoint() -> LLMEndpoint | None:
     key = _get("LLM_PEAK_API_KEY") or ""
     model = _get(
         "LLM_PEAK_MODEL",
-        "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
+        "ornith-1.5:35b",
     )
     backend = _detect_backend(base, _get("LLM_PEAK_BACKEND"))
     return LLMEndpoint(
         label="peak", base_url=base.rstrip("/"), api_key=key,
-        model=model or "nemotron-3.5-lightning:30b-a3b-mlx-bf16",
+        model=model or "ornith-1.5:35b",
         is_peak=True, backend=backend,
     )
 

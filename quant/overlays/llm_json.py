@@ -18,10 +18,12 @@ _FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 _REPORT_KEYS = frozenset({
     "sentiment", "score", "headline", "summary", "instrument",
     "risk_tags", "stance", "key_events", "watchpoints", "fundamentals",
+    "items", "thesis",  # sector_forecast 行业简报
 })
 
 
-def parse_json_object(text: str) -> dict[str, Any] | None:
+def parse_json_object(text: str,
+                      prefer_keys: frozenset[str] | None = None) -> dict[str, Any] | None:
     text = (text or "").strip()
     if not text:
         return None
@@ -31,16 +33,19 @@ def parse_json_object(text: str) -> dict[str, Any] | None:
     if fence:
         obj = _try_loads(fence.group(1))
         if isinstance(obj, dict):
-            return obj
+            if not prefer_keys or (prefer_keys & set(obj.keys())):
+                return obj
     # 2) 扫描每个 `{` 候选，挑含报告字段最多的对象
-    return _scan_objects(text)
+    return _scan_objects(text, prefer_keys=prefer_keys)
 
 
-def _scan_objects(text: str) -> dict[str, Any] | None:
+def _scan_objects(text: str,
+                  prefer_keys: frozenset[str] | None = None) -> dict[str, Any] | None:
     """从每个 `{` 位置尝试解析，返回含报告字段最多的 dict。
 
     思维链前缀（如 nemotron 的 "Here's a thinking process:..."）里可能含示例 `{...}`，
     旧版只抓第一个 `{` 会误中；这里按命中报告字段数排序，优先真正的报告对象。
+    prefer_keys：板块简报等场景强制偏向含 items 的对象，避免思维链里的 sentiment 示例抢先早停。
     """
     best: tuple[int, dict] | None = None  # (命中字段数, obj)
     i = 0
@@ -57,10 +62,18 @@ def _scan_objects(text: str) -> dict[str, Any] | None:
         if not isinstance(obj, dict):
             continue
         hits = len(_REPORT_KEYS & set(obj.keys()))
+        if prefer_keys:
+            pref = prefer_keys & set(obj.keys())
+            hits += 10 * len(pref)
+            if "items" in prefer_keys and isinstance(obj.get("items"), list) and obj["items"]:
+                hits += 20
         if best is None or hits > best[0]:
             best = (hits, obj)
             # 命中大半报告字段即可早停，避免长文本里扫所有 `{`
-            if hits >= 3:
+            if prefer_keys:
+                if prefer_keys <= set(obj.keys()):
+                    break
+            elif hits >= 3:
                 break
     return best[1] if best else None
 

@@ -29,7 +29,7 @@ React (Agent 控制台独立前端)；后端延续 `quant/` Python（FastAPI / L
 ## Operating Context
 
 - 后端与数据：`quant/`（Qlib/LGBM、`factor_lab`、overlays、`ops/run_daily`、baostock 等）
-- 运维看板：`quant/webapp`（账户/NAV/持仓追踪/大盘看板/舆情/短线猎手）——并列产品，非本控制台壳
+- 运维看板：`quant/webapp`（账户/NAV/持仓追踪/大盘看板/板块预测/舆情/短线猎手）——并列产品，非本控制台壳
 - 方案权威：`docs/QUANT_AGENT_PLAN.md`（L1/L2 预测账本、L3 状态机、结算口径、Critic、冷启动）
 - 实现架构：`docs/QUANT_AGENT_ARCHITECTURE.md`（分层边界、模块地图、数据流；图见 `docs/diagrams/quant-agent-architecture.drawio`）
 - 使用说明：`docs/QUANT_AGENT_USAGE.md`
